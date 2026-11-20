@@ -9,6 +9,9 @@
   },
   "scripts": {
     "build": "tsc",
+    "dev": "node --watch --env-file-if-exists=.env --import tsx src/server.ts",
+    "spike:replay": "node --env-file-if-exists=.env --import tsx scripts/pi-replay-spike.mjs",
+    "start": "node --env-file-if-exists=.env dist/server.js",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
@@ -22,6 +25,7 @@
     "@types/better-sqlite3": "9.6.0",
     "@types/node": "24.19.2",
     "tsx": "4.23.15",
+    "typebox": "1.4.7",
     "typescript": "5.9.3"
   }
 }

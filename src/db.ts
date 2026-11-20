@@ -38,7 +38,7 @@ interface CommitTurn {
 export interface SaraDatabase {
   saveUserMessage(input: SaveUserMessage): SavedUserMessage;
   getHistory(userId: string): ChatMessage[];
-  getModelHistory(userId: string, limit?: number): Message[];
+  getModelHistory(userId: string, limit?: number, beforeMessageId?: string): Message[];
   commitTurn(input: CommitTurn): ChatMessage;
   close(): void;
 }
@@ -147,10 +147,14 @@ function createStore(database: Database.Database): SaraDatabase {
         AND (role = 'user' OR (role = 'assistant' AND content != ''))
       ORDER BY rowid`,
   );
-  const modelHistory = database.prepare<[string, number], { role: Message["role"]; modelJson: string }>(
+  const modelHistory = database.prepare<
+    { userId: string; limit: number; beforeMessageId: string | null },
+    { role: Message["role"]; modelJson: string }
+  >(
     `SELECT role, model_json AS modelJson
-      FROM messages WHERE user_id = ? AND status = 'committed'
-      ORDER BY rowid DESC LIMIT ?`,
+      FROM messages WHERE user_id = @userId AND status = 'committed'
+        AND (@beforeMessageId IS NULL OR rowid < (SELECT rowid FROM messages WHERE id = @beforeMessageId))
+      ORDER BY rowid DESC LIMIT @limit`,
   );
 
   const saveUserMessage = database.transaction((input: SaveUserMessage): SavedUserMessage => {
@@ -208,8 +212,8 @@ function createStore(database: Database.Database): SaraDatabase {
   return {
     saveUserMessage: saveUserMessage.immediate,
     getHistory: (userId) => history.all(userId),
-    getModelHistory(userId, limit = 12) {
-      const rows = modelHistory.all(userId, limit).reverse();
+    getModelHistory(userId, limit = 12, beforeMessageId) {
+      const rows = modelHistory.all({ userId, limit, beforeMessageId: beforeMessageId ?? null }).reverse();
       // Start at the first user message inside the window so tool calls and results stay together.
       const start = rows.findIndex((row) => row.role === "user");
       return start < 0 ? [] : rows.slice(start).map((row) => JSON.parse(row.modelJson) as Message);
