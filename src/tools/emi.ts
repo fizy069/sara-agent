@@ -1,28 +1,18 @@
-import type { AgentTool } from "@earendil-works/pi-agent-core";
+import { tool } from "ai";
 import { Decimal } from "decimal.js";
-import Type from "typebox";
-
-const parameters = Type.Object({
-  principal: Type.Number({ exclusiveMinimum: 0, description: "Loan principal in rupees" }),
-  annualRatePct: Type.Number({ minimum: 0, description: "Annual interest as a percentage, e.g. 12 for 12%" }),
-  tenureMonths: Type.Integer({ minimum: 1, maximum: Number.MAX_SAFE_INTEGER }),
-}, { additionalProperties: false });
+import { z } from "zod";
 
 // Leave room for subtraction even at the smallest positive rate a JS number can represent.
 const Money = Decimal.clone({ precision: 700, rounding: Decimal.ROUND_HALF_UP });
 
-export const calculateEmi: AgentTool<typeof parameters> = {
-  name: "calculate_emi",
-  label: "Calculate EMI",
+export const calculateEmi = tool({
   description: "Calculate the fixed monthly loan repayment in INR. Requires principal, annual rate, and tenure in months.",
-  parameters,
-  async execute(_id, { principal, annualRatePct, tenureMonths }) {
-    if (!Number.isFinite(principal) || principal <= 0 ||
-        !Number.isFinite(annualRatePct) || annualRatePct < 0 ||
-        !Number.isSafeInteger(tenureMonths) || tenureMonths < 1) {
-      throw new Error("Provide a positive principal, a nonnegative annual rate, and a positive whole number of months.");
-    }
-
+  inputSchema: z.strictObject({
+    principal: z.number().positive().describe("Loan principal in rupees"),
+    annualRatePct: z.number().nonnegative().describe("Annual interest as a percentage, e.g. 12 for 12%"),
+    tenureMonths: z.int().min(1),
+  }),
+  async execute({ principal, annualRatePct, tenureMonths }) {
     const amount = new Money(principal);
     const rate = new Money(annualRatePct).div(1200);
     const emi = rate.isZero()
@@ -31,9 +21,6 @@ export const calculateEmi: AgentTool<typeof parameters> = {
     // Drop numerical noise from the formula before rounding to paise at a half-cent tie.
     const monthlyEmiInr = emi.toDecimalPlaces(40).toFixed(2);
 
-    return {
-      content: [{ type: "text", text: `Monthly EMI: ₹${monthlyEmiInr}.` }],
-      details: { monthlyEmiInr },
-    };
+    return `Monthly EMI: ₹${monthlyEmiInr}.`;
   },
-};
+});

@@ -1,6 +1,6 @@
 # Sara
 
-Sara is a text companion for people who run small businesses in India. She streams replies through Pi, calculates loan EMIs, and keeps separate chat history and memory for each demo user in SQLite.
+Sara is a text companion for people who run small businesses in India. She streams replies through the Vercel AI SDK, calculates loan EMIs, and keeps separate chat history and memory for each demo user in SQLite.
 
 ## Run locally
 
@@ -21,6 +21,8 @@ pnpm dev
 
 Open [Sara on localhost](http://127.0.0.1:3000), choose a demo user, and send a message. Reload to resume that user's conversation. The server creates `data/sara.sqlite` on startup.
 
+If you used Sara before the AI SDK migration, stop the server and delete `data/sara.sqlite` before restarting. This resets your local chat history and memories.
+
 Open **Memory** to see the selected user's saved facts. When you ask Sara to forget a fact, she removes its stored values and hides the related conversation turns from future model context. The chat transcript remains visible in the demo.
 
 The finance lookup is currently a stub and returns no verified records. EMI calculations use the principal, annual rate, and tenure supplied in chat.
@@ -32,6 +34,7 @@ The finance lookup is currently a stub and returns no verified records. EMI calc
 | `pnpm typecheck` | Check the TypeScript source. |
 | `pnpm build` | Compile the server to `dist/`. |
 | `pnpm start` | Run the compiled server after building it. |
-| `pnpm spike:replay` | Use the configured OpenAI endpoint to exercise a tool call and replay its saved Pi messages after reopening a temporary SQLite database. |
+| `pnpm test` | Run the offline turn-engine checks. |
+| `pnpm check:replay` | Use the configured OpenAI model to verify that a follow-up can use a tool result after reopening a temporary SQLite database. |
 
 See the [v1 plan](docs/v1-plan.md) for the remaining phases.

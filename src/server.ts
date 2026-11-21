@@ -5,11 +5,9 @@ import { bodyLimit } from "hono/body-limit";
 import { streamSSE } from "hono/streaming";
 import { MessageIdConflictError, openDatabase } from "./db.js";
 import { ThreadCoordinator } from "./engine/coordinator.js";
+import { chatModel, memoryModel } from "./engine/models.js";
 import { createTurnEngine } from "./engine/turn.js";
 import { createMemoryExtractor } from "./memory/extractor.js";
-
-const apiKey = process.env.OPENAI_API_KEY?.trim();
-if (!apiKey) throw new Error("Set OPENAI_API_KEY in .env before starting Sara.");
 
 const reasoning = process.env.SARA_CHAT_REASONING ?? "none";
 if (reasoning !== "none" && reasoning !== "low") {
@@ -18,15 +16,11 @@ if (reasoning !== "none" && reasoning !== "low") {
 
 const database = openDatabase(process.env.SARA_DB_PATH ?? "data/sara.sqlite");
 const engine = createTurnEngine(database, {
-  modelId: process.env.SARA_CHAT_MODEL ?? "gpt-6.1-terra",
+  model: chatModel(process.env.SARA_CHAT_MODEL ?? "gpt-6.1-terra"),
   reasoning,
-  apiKey,
-  baseUrl: process.env.OPENAI_BASE_URL,
 });
 const extract = createMemoryExtractor({
-  apiKey,
-  baseURL: process.env.OPENAI_BASE_URL,
-  model: process.env.SARA_MEMORY_MODEL ?? "gpt-6-luna",
+  model: memoryModel(process.env.SARA_MEMORY_MODEL ?? "gpt-6-luna"),
 });
 const coordinator = new ThreadCoordinator(database, engine, extract);
 const app = new Hono();

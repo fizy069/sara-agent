@@ -68,7 +68,7 @@ export class ThreadCoordinator {
         if (this.active.get(userId)?.id !== generationId) continue;
         if (event.type === "delta") {
           this.publish(userId, { ...event, generationId });
-        } else {
+        } else if (event.type === "complete") {
           const assistantMessage = this.database.commitTurn({
             userId, generationId, channel, messages: event.messages,
           });

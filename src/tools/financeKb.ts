@@ -1,19 +1,12 @@
-import type { AgentTool } from "@earendil-works/pi-agent-core";
-import Type from "typebox";
+import { tool } from "ai";
+import { z } from "zod";
 
-const parameters = Type.Object({
-  topicIds: Type.Array(Type.String({ minLength: 1 }), { minItems: 1 }),
-}, { additionalProperties: false });
-
-export const lookupFinance: AgentTool<typeof parameters> = {
-  name: "lookup_finance",
-  label: "Look up finance facts",
+export const lookupFinance = tool({
   description: "Look up sourced Indian finance facts by topic, such as gst_registration or mudra_limits.",
-  parameters,
+  inputSchema: z.strictObject({
+    topicIds: z.array(z.string().min(1)).min(1),
+  }),
   async execute() {
-    return {
-      content: [{ type: "text", text: "No verified finance records are available for this lookup." }],
-      details: { records: [] },
-    };
+    return "No verified finance records are available for this lookup.";
   },
-};
+});
