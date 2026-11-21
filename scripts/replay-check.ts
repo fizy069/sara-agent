@@ -7,13 +7,14 @@ import { tool, wrapLanguageModel } from "ai";
 import { z } from "zod";
 import { openDatabase, type SaraDatabase } from "../src/db.js";
 import { assistantText } from "../src/engine/messages.js";
-import { chatModel } from "../src/engine/models.js";
+import { createModels } from "../src/engine/models.js";
 import { createTurnEngine } from "../src/engine/turn.js";
 
 const code = `checkpoint-${randomUUID().slice(0, 8)}`;
 let toolCalls = 0;
+const models = createModels();
 const model = wrapLanguageModel({
-  model: chatModel(process.env.SARA_CHAT_MODEL ?? "gpt-6.1-terra"),
+  model: models.chat,
   middleware: {
     specificationVersion: "v4",
     async transformParams({ params }) {
@@ -73,7 +74,7 @@ try {
   const replay = await send(database, "What exact code did get_demo_code return in the previous turn? Answer from history without calling it again.");
   assert.equal(toolCalls, 1, "Expected the follow-up to use the stored result without another tool call.");
   assert(assistantText(replay).includes(code), "Expected the reply to contain the earlier tool result.");
-  console.log("OpenAI accepted the history after reopening SQLite and used the stored tool result.");
+  console.log(`${models.provider} (${model.modelId}) used the stored tool result after reopening SQLite.`);
 } finally {
   database?.close();
   rmSync(directory, { recursive: true, force: true });

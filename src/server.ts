@@ -5,7 +5,7 @@ import { bodyLimit } from "hono/body-limit";
 import { streamSSE } from "hono/streaming";
 import { MessageIdConflictError, openDatabase } from "./db.js";
 import { ThreadCoordinator } from "./engine/coordinator.js";
-import { chatModel, memoryModel } from "./engine/models.js";
+import { createModels } from "./engine/models.js";
 import { createTurnEngine } from "./engine/turn.js";
 import { createMemoryExtractor } from "./memory/extractor.js";
 
@@ -14,13 +14,15 @@ if (reasoning !== "none" && reasoning !== "low") {
   throw new Error("SARA_CHAT_REASONING must be none or low.");
 }
 
+const models = createModels();
 const database = openDatabase(process.env.SARA_DB_PATH ?? "data/sara.sqlite");
 const engine = createTurnEngine(database, {
-  model: chatModel(process.env.SARA_CHAT_MODEL ?? "gpt-6.1-terra"),
+  model: models.chat,
   reasoning,
 });
 const extract = createMemoryExtractor({
-  model: memoryModel(process.env.SARA_MEMORY_MODEL ?? "gpt-6-luna"),
+  model: models.memory,
+  ...(models.provider === "ollama" ? { reasoning: "none", temperature: 0, timeout: 60_000 } : {}),
 });
 const coordinator = new ThreadCoordinator(database, engine, extract);
 const app = new Hono();
@@ -94,5 +96,6 @@ const port = Number(process.env.PORT ?? 3000);
 if (!Number.isInteger(port) || port < 0 || port > 65_535) throw new Error("Invalid PORT.");
 const hostname = process.env.HOST ?? "127.0.0.1";
 serve({ fetch: app.fetch, port, hostname }, (address) => {
+  console.log(`Sara is using ${models.provider} (chat: ${models.chat.modelId}, memory: ${models.memory.modelId})`);
   console.log(`Sara is listening at http://${hostname}:${address.port}`);
 });
