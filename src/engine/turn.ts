@@ -10,6 +10,9 @@ import {
 } from "@earendil-works/pi-ai";
 import { openaiProvider } from "@earendil-works/pi-ai/providers/openai";
 import type { Channel, ChatMessage, SaraDatabase } from "../db.js";
+import { calculateEmi } from "../tools/emi.js";
+import { lookupFinance } from "../tools/financeKb.js";
+import { findUngroundedFinanceNumbers } from "./financeNumbers.js";
 import { buildPrompt } from "./prompt.js";
 
 interface TurnInput {
@@ -49,7 +52,7 @@ export function createTurnEngine(database: SaraDatabase, options: TurnOptions): 
     // Send effort on the request itself so rebuilding a turn keeps the same input prefix.
     compat: { ...catalog.compat, supportsMidConvoEffort: false },
   };
-  const tools = options.tools ?? [];
+  const tools = options.tools ?? [calculateEmi, lookupFinance];
   const declarations = tools.map(toToolDeclaration);
 
   return {
@@ -105,6 +108,20 @@ export function createTurnEngine(database: SaraDatabase, options: TurnOptions): 
       if (!last.content.some((part) => part.type === "text" && part.text.trim())) {
         throw new Error("The model finished without a reply.");
       }
+
+      const financeSources = [...messages, ...replies].flatMap((message) => {
+        if (message.role === "user" && typeof message.content === "string") return [message.content];
+        if (message.role === "toolResult" && !message.isError &&
+            (message.toolName === calculateEmi.name || message.toolName === lookupFinance.name)) {
+          return message.content.flatMap((part) => part.type === "text" ? [part.text] : []);
+        }
+        return [];
+      });
+      const replyText = replies.flatMap((message) => message.role === "assistant" ? message.content : [])
+        .flatMap((part) => part.type === "text" ? [part.text] : []).join("");
+      const ungrounded = findUngroundedFinanceNumbers(replyText, financeSources);
+      if (ungrounded.length) console.warn(`Sara reply contains ${ungrounded.length} ungrounded finance figure(s).`);
+
       yield { type: "complete", messages: replies };
     },
   };
