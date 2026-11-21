@@ -24,7 +24,7 @@
 
     .chat {
       display: grid;
-      grid-template-rows: auto minmax(0, 1fr) auto;
+      grid-template-rows: auto auto minmax(0, 1fr) auto;
       height: min(850px, calc(100dvh - 48px));
       max-width: 760px;
       margin: 24px auto;
@@ -105,6 +105,15 @@
       background: #dff0e5;
     }
     .bubble.typing { color: var(--muted); }
+    .bubble.voice { border-color: #cbded6; background: #f2f8f5; }
+    .bubble.user.voice { background: #e2f0e9; }
+    .voice-label {
+      display: block;
+      margin-bottom: 3px;
+      color: #41645a;
+      font-size: .75rem;
+      font-weight: 650;
+    }
 
     form {
       padding: 14px 24px 18px;
@@ -147,8 +156,33 @@
     }
     .toolbar-button:enabled:hover, .toolbar-button[aria-expanded="true"] { background: #eaf1ea; }
     .call-button { min-height: 36px; padding: 6px 10px; font-size: .85rem; white-space: nowrap; }
-    .call-button.active { background: #9f392d; }
-    .call-button.active:hover { background: #83291f; }
+    .call-panel {
+      --call-signal: #a4c1b8;
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) auto;
+      align-items: center;
+      gap: 14px;
+      margin: 16px 24px 0;
+      padding: 18px;
+      border-radius: 16px;
+      background: #173b33;
+      color: #fff;
+    }
+    .call-panel[data-connected="true"] { --call-signal: #a1e5c5; }
+    .call-panel :focus-visible { outline-color: #d9f5e9; }
+    .call-panel h2 { margin: 0; font-size: 1rem; }
+    .call-status {
+      display: flex;
+      align-items: center;
+      gap: 7px;
+      margin: 4px 0 0;
+      color: var(--call-signal);
+      font-size: .85rem;
+    }
+    .call-status::before { content: ''; flex: 0 0 7px; height: 7px; border-radius: 50%; background: currentColor; }
+    .end-call { min-height: 44px; padding: 8px 14px; background: #ab3d38; font-size: .875rem; white-space: nowrap; }
+    .end-call:enabled:hover { background: #93332e; }
+    .call-feedback { margin: 12px 24px 0; color: #9f392d; font-size: .88rem; }
     .notice { display: flex; align-items: center; gap: 8px; margin-bottom: 10px; }
     .notice span { color: #9f392d; font-size: .88rem; }
     .notice button { padding: 4px 8px; min-height: auto; font-size: .85rem; }
@@ -172,6 +206,8 @@
       .topbar, .conversation, form { padding-inline: 14px; }
       .topbar { gap: 8px; flex-wrap: wrap; }
       .profile-label { display: none; }
+      .call-panel { margin: 12px 14px 0; padding: 14px; }
+      .call-feedback { margin-inline: 14px; }
       form { padding-bottom: max(14px, env(safe-area-inset-bottom)); }
       .chat-body { flex-direction: column-reverse; }
       .memory-panel { flex: 0 0 auto; max-height: 28dvh; border: 0; border-bottom: 1px solid var(--line); }
@@ -185,7 +221,6 @@
       <div>
         <h1 id="title">Sara</h1>
         <div class="status" id="connection" role="status">Connecting…</div>
-        <div class="status" id="call-status" role="status" hidden></div>
       </div>
       <div class="topbar-actions">
         <label class="profile" for="profile">
@@ -200,6 +235,17 @@
         <button class="call-button" id="call" type="button" disabled>Call Sara</button>
       </div>
     </header>
+
+    <div>
+      <section class="call-panel" id="call-panel" aria-labelledby="call-title" hidden>
+        <div>
+          <h2 id="call-title">Voice call with Sara</h2>
+          <p class="call-status" id="call-status" role="status" aria-atomic="true"></p>
+        </div>
+        <button class="end-call" id="end-call" type="button">End call</button>
+      </section>
+      <p class="call-feedback" id="call-feedback" role="status" hidden></p>
+    </div>
 
     <div class="chat-body">
       <div class="conversation" id="conversation">
@@ -246,7 +292,10 @@
     const memoryStatus = document.querySelector('#memory-status');
     const memoryList = document.querySelector('#memory-list');
     const callButton = document.querySelector('#call');
+    const callPanel = document.querySelector('#call-panel');
     const callStatus = document.querySelector('#call-status');
+    const callFeedback = document.querySelector('#call-feedback');
+    const endCallButton = document.querySelector('#end-call');
     const callAudio = document.querySelector('#call-audio');
     let current;
     let activeCall;
@@ -261,18 +310,41 @@
       const busy = !current.ready || current.sending || current.clearing;
       send.disabled = busy || !messageInput.value.trim();
       newChat.disabled = busy || !!activeCall;
-      callButton.disabled = !activeCall && (!current.ready || current.clearing);
-      callButton.textContent = activeCall ? 'End call' : 'Call Sara';
-      callButton.classList.toggle('active', !!activeCall);
+      callButton.disabled = !current.ready || current.clearing;
+      callButton.hidden = !!activeCall;
     }
 
-    function setCallStatus(text) {
-      callStatus.textContent = text;
-      callStatus.hidden = !text;
+    function showCallFeedback(text = '') {
+      callFeedback.textContent = text;
+      callFeedback.hidden = !text;
+    }
+
+    function renderCall(call) {
+      if (activeCall !== call) return;
+      const { localParticipant, activeSpeakers } = call.room;
+      const connected = Boolean(call.micReady && call.track && !call.reconnecting);
+      let status = 'Connecting…';
+      if (call.reconnecting) {
+        status = 'Reconnecting…';
+      } else if (connected) {
+        if (activeSpeakers.includes(localParticipant)) {
+          status = 'You’re speaking';
+        } else if (activeSpeakers.some(({ identity }) => identity === call.agentIdentity)) {
+          status = 'Sara is speaking';
+        } else {
+          status = 'Listening';
+        }
+      } else if (call.micReady) {
+        status = 'Waiting for Sara…';
+      }
+      callPanel.dataset.connected = String(connected);
+      if (callStatus.textContent !== status) callStatus.textContent = status;
     }
 
     function endCall(status = '') {
       const call = activeCall;
+      const restoreFocus = callPanel.contains(document.activeElement);
+      const follow = isNearLatest();
       activeCall = undefined;
       if (call) {
         call.request.abort();
@@ -280,47 +352,53 @@
         call.track?.detach(callAudio);
         void call.room.disconnect().catch(console.warn);
       }
-      setCallStatus(status);
+      callPanel.hidden = true;
+      showCallFeedback(status);
       updateComposer();
+      if (follow) scrollToLatest();
+      if (restoreFocus) callButton.focus();
     }
 
-    async function toggleCall() {
-      if (activeCall) {
-        endCall();
-        return;
-      }
+    async function startCall() {
+      if (activeCall) return;
       const sdk = globalThis.LivekitClient;
       if (!sdk) {
-        setCallStatus('Couldn’t load the voice call.');
+        showCallFeedback('Couldn’t load the voice call.');
         return;
       }
       const { Room, RoomEvent, Track } = sdk;
       const room = new Room();
       const request = new AbortController();
+      const follow = isNearLatest();
       const call = activeCall = {
         room, request,
         timer: setTimeout(() => {
           if (activeCall === call) endCall('Sara couldn’t join the call. Try again.');
         }, 30_000),
       };
-      setCallStatus('Connecting call…');
+      showCallFeedback();
+      callPanel.hidden = false;
+      renderCall(call);
       updateComposer();
-      function updateCallStatus() {
-        if (activeCall !== call || !call.micReady) return;
-        if (call.track) clearTimeout(call.timer);
-        setCallStatus(call.track ? 'In call' : 'Waiting for Sara…');
+      if (follow) scrollToLatest();
+      endCallButton.focus();
+
+      function updateCall() {
+        if (call.track && call.micReady) clearTimeout(call.timer);
+        renderCall(call);
       }
       room.on(RoomEvent.TrackSubscribed, (track, _publication, participant) => {
         if (activeCall !== call || track.kind !== Track.Kind.Audio) return;
         call.track = track;
         call.agentIdentity = participant.identity;
         track.attach(callAudio);
-        updateCallStatus();
+        updateCall();
       });
       room.on(RoomEvent.TrackUnsubscribed, (track) => {
         if (call.track === track) {
           track.detach(callAudio);
           call.track = undefined;
+          updateCall();
         }
       });
       room.on(RoomEvent.Disconnected, () => {
@@ -330,9 +408,14 @@
         if (activeCall === call && participant.identity === call.agentIdentity) endCall('Sara left the call.');
       });
       room.on(RoomEvent.Reconnecting, () => {
-        if (activeCall === call) setCallStatus('Reconnecting call…');
+        call.reconnecting = true;
+        updateCall();
       });
-      room.on(RoomEvent.Reconnected, updateCallStatus);
+      room.on(RoomEvent.Reconnected, () => {
+        call.reconnecting = false;
+        updateCall();
+      });
+      room.on(RoomEvent.ActiveSpeakersChanged, () => renderCall(call));
       // Unlock audio while handling the click.
       void room.startAudio().catch(() => {});
       try {
@@ -342,9 +425,10 @@
         if (activeCall !== call) return;
         await room.connect(url, token);
         if (activeCall !== call) return;
-        await room.localParticipant.setMicrophoneEnabled(true);
+        const publication = await room.localParticipant.setMicrophoneEnabled(true);
+        if (!publication) throw new Error('Couldn’t turn on the microphone. Try again.');
         call.micReady = true;
-        updateCallStatus();
+        updateCall();
       } catch (error) {
         if (activeCall === call) endCall(error.name === 'NotAllowedError'
           ? 'Allow microphone access to call Sara.'
@@ -360,20 +444,25 @@
       return conversation.scrollHeight - conversation.scrollTop - conversation.clientHeight < 80;
     }
 
+    function voiceLabel(role) {
+      const label = document.createElement('small');
+      label.className = 'voice-label';
+      label.textContent = `${role === 'user' ? 'You' : 'Sara'} · Voice`;
+      return label;
+    }
+
     function appendMessage(session, message) {
       if (session.messageIds.has(message.id)) return;
       session.messageIds.add(message.id);
       const bubble = document.createElement('p');
       bubble.classList.add('bubble', message.role);
-      const speaker = document.createElement('span');
-      speaker.className = 'sr-only';
-      speaker.textContent = message.role === 'user' ? 'You: ' : 'Sara: ';
       if (message.channel === 'voice') {
-        const label = document.createElement('small');
-        label.className = 'status';
-        label.textContent = 'Call · ';
-        bubble.append(speaker, label, message.content);
+        bubble.classList.add('voice');
+        bubble.append(voiceLabel(message.role), message.content);
       } else {
+        const speaker = document.createElement('span');
+        speaker.className = 'sr-only';
+        speaker.textContent = message.role === 'user' ? 'You: ' : 'Sara: ';
         bubble.append(speaker, message.content);
       }
       messages.append(bubble);
@@ -390,7 +479,12 @@
           bubble.className = 'bubble typing';
           bubble.setAttribute('aria-hidden', 'true');
           bubble.dataset.channel = data.userMessage?.channel ?? 'text';
-          bubble.textContent = bubble.dataset.channel === 'voice' ? 'Sara is replying…' : 'Sara is typing…';
+          const voice = bubble.dataset.channel === 'voice';
+          if (voice) {
+            bubble.classList.add('voice');
+            bubble.append(voiceLabel('assistant'));
+          }
+          bubble.append(voice ? 'Replying…' : 'Sara is typing…');
           session.drafts.set(data.generationId, bubble);
           messages.append(bubble);
           empty.hidden = true;
@@ -398,7 +492,7 @@
       } else if (type === 'delta') {
         if (draft?.classList.contains('typing')) {
           draft.classList.remove('typing');
-          draft.textContent = '';
+          draft.lastChild.remove();
         }
         draft?.append(data.delta);
       } else {
@@ -608,7 +702,8 @@
       else openConversation(profile.value);
     });
     newChat.addEventListener('click', startNewChat);
-    callButton.addEventListener('click', toggleCall);
+    callButton.addEventListener('click', startCall);
+    endCallButton.addEventListener('click', () => endCall());
     window.addEventListener('pagehide', () => {
       if (activeCall) endCall();
     });

@@ -50,7 +50,7 @@ Keep Ollama running. Run `livekit-server --dev`, `pnpm dev`, and `pnpm voice:dev
 
 1. In chat, tell Sara “My shop is called Lotus Stationery.”
 2. Call from the same demo profile and ask “Do you remember the name of my shop?”
-3. On the call, mention a new detail and hang up after Sara replies. Ask about it in chat. The call transcript is marked **Call** in the shared conversation.
+3. On the call, mention a new detail and hang up after Sara replies. Ask about it in chat. Look for **You · Voice** and **Sara · Voice** in the shared conversation.
 
 For hosted speech, set `SARA_SPEECH_PROVIDER=sarvam` and `SARVAM_API_KEY` in the worker’s environment. LiveKit uses Sarvam for transcription and speech synthesis. Conversation and memory still use the backend’s configured Ollama or OpenAI models.
 
