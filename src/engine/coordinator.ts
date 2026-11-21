@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import type { ChatMessage, SaraDatabase } from "../db.js";
+import type { Channel, ChatMessage, SaraDatabase } from "../db.js";
 import type { MemoryExtractor } from "../memory/extractor.js";
 import type { TurnEngine } from "./turn.js";
 
@@ -49,12 +49,12 @@ export class ThreadCoordinator {
     this.publish(userId, { type: "history-cleared" });
   }
 
-  submit(userId: string, content: string, clientMessageId: string) {
+  submit(userId: string, content: string, clientMessageId: string, channel: Channel = "text") {
     const saved = this.database.saveUserMessage({
-      userId, channel: "text", content, clientMessageId, generationId: randomUUID(),
+      userId, channel, content, clientMessageId, generationId: randomUUID(),
     });
     const { message, generationId } = saved;
-    if (!saved.created) return { message, generationId };
+    if (!saved.created) return saved;
 
     const previous = this.active.get(userId);
     const controller = new AbortController();
@@ -62,19 +62,27 @@ export class ThreadCoordinator {
       () => this.generate(userId, generationId, message, controller.signal),
     );
     this.active.set(userId, { id: generationId, controller, settled });
-    if (previous) {
+    if (previous && !previous.controller.signal.aborted) {
       previous.controller.abort();
       this.publish(userId, { type: "cancelled", generationId: previous.id });
     }
     this.publish(userId, { type: "typing", generationId, userMessage: message });
-    return { message, generationId };
+    return saved;
+  }
+
+  cancel(userId: string, generationId: string): void {
+    const generation = this.active.get(userId);
+    if (generation?.id !== generationId || generation.controller.signal.aborted) return;
+    generation.controller.abort();
+    this.publish(userId, { type: "cancelled", generationId });
   }
 
   private async generate(userId: string, generationId: string, message: ChatMessage, signal: AbortSignal) {
-    if (signal.aborted) return;
     try {
-      const channel = "text";
+      signal.throwIfAborted();
+      const { channel } = message;
       for await (const event of this.engine.run({ userId, channel, utterances: [message], signal })) {
+        if (signal.aborted) break;
         if (this.active.get(userId)?.id !== generationId) continue;
         if (event.type === "delta") {
           this.publish(userId, { ...event, generationId });

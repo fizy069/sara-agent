@@ -1,6 +1,6 @@
 # Sara
 
-Sara is a text companion for people who run small businesses in India. She streams replies through the Vercel AI SDK, calculates loan EMIs, and keeps separate chat history and memory for each demo user in SQLite.
+Sara is a chat and voice companion for people who run small businesses in India. She streams replies through the Vercel AI SDK, calculates loan EMIs, and shares history and memory between chat and calls for each demo user in SQLite.
 
 ## Run locally with Ollama
 
@@ -26,7 +26,50 @@ Open [Sara on localhost](http://127.0.0.1:3000), choose a demo user, and send a 
 
 When you ask Sara to forget a fact, she removes its stored values and hides the related conversation turns from future model context. The chat transcript remains visible in the demo.
 
-The browser demo currently supports text chat. The finance lookup is a stub and returns no verified records.
+The finance lookup is a stub and returns no verified records.
+
+## Make a browser call on macOS
+
+The local path uses LiveKit for audio, Whisper for transcription, macOS voices for speech, and the same Ollama model as chat. Install the audio tools and download a multilingual Whisper model from the repository root. [LiveKit local setup](https://docs.livekit.io/transport/self-hosting/local/), [Whisper model files](https://github.com/ggml-org/whisper.cpp/tree/master/models).
+
+```sh
+brew install livekit whisper.cpp
+mkdir -p data/models
+curl -fL https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-small-q5_1.bin \
+  -o data/models/ggml-small-q5_1.bin
+```
+
+Copy [.env.example](.env.example) to `.env` if needed and add these settings. Generate a value for the shared token with `openssl rand -hex 24`.
+
+```dotenv
+SARA_AGENT_TOKEN=replace-with-a-random-token
+SARA_WHISPER_MODEL=data/models/ggml-small-q5_1.bin
+```
+
+Keep Ollama running. Run `livekit-server --dev`, `pnpm dev`, and `pnpm voice:dev` in separate terminals. Open [Sara on localhost](http://127.0.0.1:3000), choose a demo user, click **Call Sara**, and allow microphone access. Use **End call** to hang up. The default LiveKit credentials and demo profiles are for local development.
+
+1. In chat, tell Sara “My shop is called Lotus Stationery.”
+2. Call from the same demo profile and ask “Do you remember the name of my shop?”
+3. On the call, mention a new detail and hang up after Sara replies. Ask about it in chat. The call transcript is marked **Call** in the shared conversation.
+
+For hosted speech, set `SARA_SPEECH_PROVIDER=sarvam` and `SARVAM_API_KEY` in the worker’s environment. LiveKit uses Sarvam for transcription and speech synthesis. Conversation and memory still use the backend’s configured Ollama or OpenAI models.
+
+### Voice flow
+
+The backend gives the browser a room-scoped token and dispatches the Sara worker. LiveKit detects speech and interruptions, and the worker sends the final transcript to the backend. The same coordinator handles typed and spoken turns. It streams the reply to both the browser transcript and the worker, which synthesizes audio into the room. If the caller interrupts while a reply is generating, the worker closes the reply stream and the backend cancels that generation. A reply that has already committed remains in history even if the caller interrupts playback.
+
+The local worker transcribes after a pause and uses macOS speech voices. Short pauses can split a sentence, and Hinglish pronunciation depends on the selected system voice. The worker logs timing by stage for smoke testing.
+
+The English and Hindi smoke calls returned audible replies and recalled the fact entered in chat. In a separate call, speaking over Sara stopped the first reply and started a new turn. Whisper garbled the new preference in the Hinglish sample, so that check failed.
+
+Two local smoke calls used Whisper small and Qwen 3.5 9B. Times are in seconds.
+
+| Measurement | First call | Repeat call |
+| --- | ---: | ---: |
+| End of test utterance to first audible reply | 8.3 | 2.7 |
+| Whisper transcription | 4.8 | 0.4 |
+| Backend request to first token | 1.0 | 0.2 |
+| First synthesis request to first PCM chunk | 1.4 | 0.8 |
 
 ### Switch to OpenAI
 
@@ -41,7 +84,10 @@ If your database predates the AI SDK migration, you can start with a fresh datab
 | `pnpm typecheck` | Check the TypeScript source. |
 | `pnpm build` | Compile the server to `dist/`. |
 | `pnpm start` | Run the compiled server after building it. |
+| `pnpm voice:dev` | Run the LiveKit voice worker in development mode. |
+| `pnpm voice:start` | Run the compiled voice worker after building it. |
 | `pnpm test` | Run the offline turn-engine checks. |
 | `pnpm check:replay` | Use the configured chat model to verify that a follow-up can use a tool result after reopening a temporary SQLite database. |
+| `pnpm check:voice` | Make a real LiveKit call with synthetic microphone audio on macOS. Requires the running local stack. |
 
-See the [v1 plan](docs/v1-plan.md) for the remaining phases.
+See the [original v1 plan](docs/v1-plan.md) for the text harness and roadmap.

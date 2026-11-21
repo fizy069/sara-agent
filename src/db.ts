@@ -11,6 +11,7 @@ export type Channel = "text" | "voice";
 export interface ChatMessage {
   id: string;
   role: "user" | "assistant";
+  channel: Channel;
   content: string;
   clientMessageId: string | null;
   createdAt: string;
@@ -152,14 +153,14 @@ function createStore(database: Database.Database): SaraDatabase {
   );
   const findUserMessage = database.prepare<
     [string],
-    ChatMessage & Pick<MessageRow, "userId" | "channel" | "generationId"> & { status: string }
+    ChatMessage & Pick<MessageRow, "userId" | "generationId"> & { status: string }
   >(
     `SELECT id, role, content, client_message_id AS clientMessageId, created_at AS createdAt,
       user_id AS userId, channel, generation_id AS generationId, status
       FROM messages WHERE client_message_id = ? AND role = 'user'`,
   );
   const history = database.prepare<[string], ChatMessage>(
-    `SELECT id, role, content, client_message_id AS clientMessageId, created_at AS createdAt
+    `SELECT id, role, channel, content, client_message_id AS clientMessageId, created_at AS createdAt
       FROM messages WHERE user_id = ? AND status = 'committed'
         AND (role = 'user' OR (role = 'assistant' AND content != ''))
       ORDER BY rowid`,
@@ -183,8 +184,8 @@ function createStore(database: Database.Database): SaraDatabase {
   const saveUserMessage = database.transaction((input: SaveUserMessage): SavedUserMessage => {
     const existing = findUserMessage.get(input.clientMessageId);
     if (existing) {
-      const { userId, channel, generationId, status, ...message } = existing;
-      if (userId !== input.userId || channel !== input.channel || message.content !== input.content) {
+      const { userId, generationId, status, ...message } = existing;
+      if (userId !== input.userId || message.channel !== input.channel || message.content !== input.content) {
         throw new MessageIdConflictError();
       }
       if (status === "cleared") {
@@ -197,6 +198,7 @@ function createStore(database: Database.Database): SaraDatabase {
     const message: ChatMessage = {
       id: randomUUID(),
       role: "user",
+      channel: input.channel,
       content: input.content,
       clientMessageId: input.clientMessageId,
       createdAt: new Date(Date.now()).toISOString(),
@@ -228,7 +230,7 @@ function createStore(database: Database.Database): SaraDatabase {
         createdAt,
       });
     }
-    return { id: finalId, role: "assistant", content, clientMessageId: null, createdAt };
+    return { id: finalId, role: "assistant", channel: input.channel, content, clientMessageId: null, createdAt };
   });
 
   return {

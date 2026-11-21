@@ -10,18 +10,27 @@
   "scripts": {
     "build": "tsc",
     "check:replay": "node --env-file-if-exists=.env --import tsx scripts/replay-check.ts",
+    "check:voice": "node --env-file-if-exists=.env scripts/voice-smoke.mjs",
     "dev": "node --watch --env-file-if-exists=.env --import tsx src/server.ts",
     "start": "node --env-file-if-exists=.env dist/server.js",
+    "voice:dev": "node --env-file-if-exists=.env --import tsx src/voice/worker.ts dev",
+    "voice:start": "node --env-file-if-exists=.env dist/voice/worker.js start",
     "test": "vitest run",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
     "@ai-sdk/openai": "4.0.122",
     "@hono/node-server": "2.1.11",
+    "@livekit/agents": "1.10.1",
+    "@livekit/agents-plugin-sarvam": "1.10.1",
+    "@livekit/agents-plugin-silero": "1.10.1",
+    "@livekit/rtc-node": "1.2.3",
     "ai": "7.0.179",
     "better-sqlite3": "13.2.0",
     "decimal.js": "10.6.0",
     "hono": "4.13.19",
+    "livekit-client": "2.25.0",
+    "livekit-server-sdk": "2.20.1",
     "zod": "4.6.7"
   },
   "devDependencies": {

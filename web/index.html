@@ -146,6 +146,9 @@
       white-space: nowrap;
     }
     .toolbar-button:enabled:hover, .toolbar-button[aria-expanded="true"] { background: #eaf1ea; }
+    .call-button { min-height: 36px; padding: 6px 10px; font-size: .85rem; white-space: nowrap; }
+    .call-button.active { background: #9f392d; }
+    .call-button.active:hover { background: #83291f; }
     .notice { display: flex; align-items: center; gap: 8px; margin-bottom: 10px; }
     .notice span { color: #9f392d; font-size: .88rem; }
     .notice button { padding: 4px 8px; min-height: auto; font-size: .85rem; }
@@ -182,6 +185,7 @@
       <div>
         <h1 id="title">Sara</h1>
         <div class="status" id="connection" role="status">Connecting…</div>
+        <div class="status" id="call-status" role="status" hidden></div>
       </div>
       <div class="topbar-actions">
         <label class="profile" for="profile">
@@ -193,6 +197,7 @@
         </label>
         <button class="toolbar-button" id="new-chat" type="button" disabled>New chat</button>
         <button class="toolbar-button" id="memory-toggle" type="button" aria-controls="memory-panel" aria-expanded="false">Memory</button>
+        <button class="call-button" id="call" type="button" disabled>Call Sara</button>
       </div>
     </header>
 
@@ -221,6 +226,8 @@
     </form>
   </main>
 
+  <audio id="call-audio" autoplay></audio>
+  <script src="/livekit-client.js"></script>
   <script>
     const profile = document.querySelector('#profile');
     const connection = document.querySelector('#connection');
@@ -238,7 +245,11 @@
     const memoryPanel = document.querySelector('#memory-panel');
     const memoryStatus = document.querySelector('#memory-status');
     const memoryList = document.querySelector('#memory-list');
+    const callButton = document.querySelector('#call');
+    const callStatus = document.querySelector('#call-status');
+    const callAudio = document.querySelector('#call-audio');
     let current;
+    let activeCall;
 
     function showNotice(text = '', canRetry = false) {
       noticeText.textContent = text;
@@ -249,7 +260,96 @@
     function updateComposer() {
       const busy = !current.ready || current.sending || current.clearing;
       send.disabled = busy || !messageInput.value.trim();
-      newChat.disabled = busy;
+      newChat.disabled = busy || !!activeCall;
+      callButton.disabled = !activeCall && (!current.ready || current.clearing);
+      callButton.textContent = activeCall ? 'End call' : 'Call Sara';
+      callButton.classList.toggle('active', !!activeCall);
+    }
+
+    function setCallStatus(text) {
+      callStatus.textContent = text;
+      callStatus.hidden = !text;
+    }
+
+    function endCall(status = '') {
+      const call = activeCall;
+      activeCall = undefined;
+      if (call) {
+        call.request.abort();
+        clearTimeout(call.timer);
+        call.track?.detach(callAudio);
+        void call.room.disconnect().catch(console.warn);
+      }
+      setCallStatus(status);
+      updateComposer();
+    }
+
+    async function toggleCall() {
+      if (activeCall) {
+        endCall();
+        return;
+      }
+      const sdk = globalThis.LivekitClient;
+      if (!sdk) {
+        setCallStatus('Couldn’t load the voice call.');
+        return;
+      }
+      const { Room, RoomEvent, Track } = sdk;
+      const room = new Room();
+      const request = new AbortController();
+      const call = activeCall = {
+        room, request,
+        timer: setTimeout(() => {
+          if (activeCall === call) endCall('Sara couldn’t join the call. Try again.');
+        }, 30_000),
+      };
+      setCallStatus('Connecting call…');
+      updateComposer();
+      function updateCallStatus() {
+        if (activeCall !== call || !call.micReady) return;
+        if (call.track) clearTimeout(call.timer);
+        setCallStatus(call.track ? 'In call' : 'Waiting for Sara…');
+      }
+      room.on(RoomEvent.TrackSubscribed, (track, _publication, participant) => {
+        if (activeCall !== call || track.kind !== Track.Kind.Audio) return;
+        call.track = track;
+        call.agentIdentity = participant.identity;
+        track.attach(callAudio);
+        updateCallStatus();
+      });
+      room.on(RoomEvent.TrackUnsubscribed, (track) => {
+        if (call.track === track) {
+          track.detach(callAudio);
+          call.track = undefined;
+        }
+      });
+      room.on(RoomEvent.Disconnected, () => {
+        if (activeCall === call) endCall('Call disconnected.');
+      });
+      room.on(RoomEvent.ParticipantDisconnected, (participant) => {
+        if (activeCall === call && participant.identity === call.agentIdentity) endCall('Sara left the call.');
+      });
+      room.on(RoomEvent.Reconnecting, () => {
+        if (activeCall === call) setCallStatus('Reconnecting call…');
+      });
+      room.on(RoomEvent.Reconnected, updateCallStatus);
+      // Unlock audio while handling the click.
+      void room.startAudio().catch(() => {});
+      try {
+        const response = await fetch(`${current.base}/call`, { method: 'POST', signal: request.signal });
+        const { url, token, error } = await response.json();
+        if (!response.ok) throw new Error(error || 'Couldn’t start a call.');
+        if (activeCall !== call) return;
+        await room.connect(url, token);
+        if (activeCall !== call) return;
+        await room.localParticipant.setMicrophoneEnabled(true);
+        call.micReady = true;
+        updateCallStatus();
+      } catch (error) {
+        if (activeCall === call) endCall(error.name === 'NotAllowedError'
+          ? 'Allow microphone access to call Sara.'
+          : error.message || 'Couldn’t start a call.');
+      }
     }
 
     function scrollToLatest() {
@@ -268,7 +368,14 @@
       const speaker = document.createElement('span');
       speaker.className = 'sr-only';
       speaker.textContent = message.role === 'user' ? 'You: ' : 'Sara: ';
-      bubble.append(speaker, message.content);
+      if (message.channel === 'voice') {
+        const label = document.createElement('small');
+        label.className = 'status';
+        label.textContent = 'Call · ';
+        bubble.append(speaker, label, message.content);
+      } else {
+        bubble.append(speaker, message.content);
+      }
       messages.append(bubble);
       empty.hidden = true;
     }
@@ -282,7 +389,8 @@
           const bubble = document.createElement('p');
           bubble.className = 'bubble typing';
           bubble.setAttribute('aria-hidden', 'true');
-          bubble.textContent = 'Sara is typing…';
+          bubble.dataset.channel = data.userMessage?.channel ?? 'text';
+          bubble.textContent = bubble.dataset.channel === 'voice' ? 'Sara is replying…' : 'Sara is typing…';
           session.drafts.set(data.generationId, bubble);
           messages.append(bubble);
           empty.hidden = true;
@@ -298,7 +406,7 @@
         session.drafts.delete(data.generationId);
         if (type === 'done') {
           appendMessage(session, data.assistantMessage);
-        } else {
+        } else if (data.reason || draft?.dataset.channel !== 'voice') {
           showNotice(data.reason || 'Reply cancelled.');
         }
         void refreshMemories(session);
@@ -488,6 +596,7 @@
     }
 
     profile.addEventListener('change', () => {
+      endCall();
       const url = new URL(location.href);
       url.searchParams.set('user', profile.value);
       history.replaceState(null, '', url);
@@ -499,6 +608,10 @@
       else openConversation(profile.value);
     });
     newChat.addEventListener('click', startNewChat);
+    callButton.addEventListener('click', toggleCall);
+    window.addEventListener('pagehide', () => {
+      if (activeCall) endCall();
+    });
     memoryToggle.addEventListener('click', () => {
       memoryPanel.hidden = !memoryPanel.hidden;
       memoryToggle.setAttribute('aria-expanded', String(!memoryPanel.hidden));
