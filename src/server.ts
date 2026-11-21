@@ -39,6 +39,10 @@ users.use("/:uid/*", async (c, next) => {
 });
 
 users.get("/:uid/history", (c) => c.json({ messages: database.getHistory(c.req.param("uid")) }));
+users.delete("/:uid/history", (c) => {
+  coordinator.clearHistory(c.req.param("uid"));
+  return c.body(null, 204);
+});
 users.get("/:uid/memories", (c) => c.json({ memories: database.getMemories(c.req.param("uid")) }));
 
 users.get("/:uid/events", (c) => {

@@ -40,14 +40,15 @@ interface CommitTurn {
 export interface SaraDatabase extends MemoryStore {
   saveUserMessage(input: SaveUserMessage): SavedUserMessage;
   getHistory(userId: string): ChatMessage[];
+  clearHistory(userId: string): void;
   getModelHistory(userId: string, limit?: number, beforeMessageId?: string): ModelMessage[];
   commitTurn(input: CommitTurn): ChatMessage;
   close(): void;
 }
 
 export class MessageIdConflictError extends Error {
-  constructor() {
-    super("This client message ID has already been used for a different message.");
+  constructor(message = "This client message ID has already been used for a different message.") {
+    super(message);
     this.name = "MessageIdConflictError";
   }
 }
@@ -151,10 +152,10 @@ function createStore(database: Database.Database): SaraDatabase {
   );
   const findUserMessage = database.prepare<
     [string],
-    ChatMessage & Pick<MessageRow, "userId" | "channel" | "generationId">
+    ChatMessage & Pick<MessageRow, "userId" | "channel" | "generationId"> & { status: string }
   >(
     `SELECT id, role, content, client_message_id AS clientMessageId, created_at AS createdAt,
-      user_id AS userId, channel, generation_id AS generationId
+      user_id AS userId, channel, generation_id AS generationId, status
       FROM messages WHERE client_message_id = ? AND role = 'user'`,
   );
   const history = database.prepare<[string], ChatMessage>(
@@ -162,6 +163,10 @@ function createStore(database: Database.Database): SaraDatabase {
       FROM messages WHERE user_id = ? AND status = 'committed'
         AND (role = 'user' OR (role = 'assistant' AND content != ''))
       ORDER BY rowid`,
+  );
+  // Saved memories and forget records reference the original message rows.
+  const clearHistory = database.prepare<[string]>(
+    "UPDATE messages SET status = 'cleared' WHERE user_id = ? AND status = 'committed'",
   );
   const modelHistory = database.prepare<
     { userId: string; limit: number; beforeMessageId: string | null },
@@ -178,9 +183,12 @@ function createStore(database: Database.Database): SaraDatabase {
   const saveUserMessage = database.transaction((input: SaveUserMessage): SavedUserMessage => {
     const existing = findUserMessage.get(input.clientMessageId);
     if (existing) {
-      const { userId, channel, generationId, ...message } = existing;
+      const { userId, channel, generationId, status, ...message } = existing;
       if (userId !== input.userId || channel !== input.channel || message.content !== input.content) {
         throw new MessageIdConflictError();
+      }
+      if (status === "cleared") {
+        throw new MessageIdConflictError("This message belongs to a cleared conversation. Send it as a new message.");
       }
       return { message, generationId, created: false };
     }
@@ -227,6 +235,9 @@ function createStore(database: Database.Database): SaraDatabase {
     ...createMemoryStore(database),
     saveUserMessage: saveUserMessage.immediate,
     getHistory: (userId) => history.all(userId),
+    clearHistory(userId) {
+      clearHistory.run(userId);
+    },
     getModelHistory(userId, limit = 12, beforeMessageId) {
       const rows = modelHistory.all({ userId, limit, beforeMessageId: beforeMessageId ?? null }).reverse();
       // Start at the first user message inside the window so tool calls and results stay together.

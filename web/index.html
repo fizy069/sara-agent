@@ -35,7 +35,7 @@
       overflow: hidden;
     }
 
-    .topbar, .profile, .compose-row { display: flex; align-items: center; }
+    .topbar, .topbar-actions, .profile, .compose-row { display: flex; align-items: center; }
     .topbar {
       gap: 12px;
       padding: 16px 24px;
@@ -54,7 +54,8 @@
     }
     h1 { margin: 0; font-size: 1.2rem; letter-spacing: -.025em; }
     .status, .profile { color: var(--muted); font-size: .85rem; }
-    .profile { gap: 8px; margin-left: auto; }
+    .topbar-actions { gap: 8px; margin-left: auto; }
+    .profile { gap: 8px; }
     select {
       padding: 7px 9px;
       color: inherit;
@@ -135,15 +136,16 @@
     }
     button:enabled:hover { background: #0f523e; }
     button:disabled { cursor: default; opacity: .55; }
-    .memory-toggle {
+    .toolbar-button {
       min-height: 36px;
       padding: 6px 9px;
       background: white;
       border: 1px solid var(--line);
       color: var(--accent);
       font-size: .85rem;
+      white-space: nowrap;
     }
-    .memory-toggle:enabled:hover, .memory-toggle[aria-expanded="true"] { background: #eaf1ea; }
+    .toolbar-button:enabled:hover, .toolbar-button[aria-expanded="true"] { background: #eaf1ea; }
     .notice { display: flex; align-items: center; gap: 8px; margin-bottom: 10px; }
     .notice span { color: #9f392d; font-size: .88rem; }
     .notice button { padding: 4px 8px; min-height: auto; font-size: .85rem; }
@@ -165,7 +167,7 @@
     @media (max-width: 560px) {
       .chat { height: 100dvh; margin: 0; border: 0; border-radius: 0; }
       .topbar, .conversation, form { padding-inline: 14px; }
-      .topbar { gap: 8px; }
+      .topbar { gap: 8px; flex-wrap: wrap; }
       .profile-label { display: none; }
       form { padding-bottom: max(14px, env(safe-area-inset-bottom)); }
       .chat-body { flex-direction: column-reverse; }
@@ -181,14 +183,17 @@
         <h1 id="title">Sara</h1>
         <div class="status" id="connection" role="status">Connecting…</div>
       </div>
-      <label class="profile" for="profile">
-        <span class="profile-label">Demo user</span>
-        <select id="profile" aria-label="Demo user">
-          <option value="demo-1">User 1</option>
-          <option value="demo-2">User 2</option>
-        </select>
-      </label>
-      <button class="memory-toggle" id="memory-toggle" type="button" aria-controls="memory-panel" aria-expanded="false">Memory</button>
+      <div class="topbar-actions">
+        <label class="profile" for="profile">
+          <span class="profile-label">Demo user</span>
+          <select id="profile" aria-label="Demo user">
+            <option value="demo-1">User 1</option>
+            <option value="demo-2">User 2</option>
+          </select>
+        </label>
+        <button class="toolbar-button" id="new-chat" type="button" disabled>New chat</button>
+        <button class="toolbar-button" id="memory-toggle" type="button" aria-controls="memory-panel" aria-expanded="false">Memory</button>
+      </div>
     </header>
 
     <div class="chat-body">
@@ -228,6 +233,7 @@
     const notice = document.querySelector('#notice');
     const noticeText = document.querySelector('#notice-text');
     const retry = document.querySelector('#retry');
+    const newChat = document.querySelector('#new-chat');
     const memoryToggle = document.querySelector('#memory-toggle');
     const memoryPanel = document.querySelector('#memory-panel');
     const memoryStatus = document.querySelector('#memory-status');
@@ -241,7 +247,9 @@
     }
 
     function updateComposer() {
-      send.disabled = !current.ready || current.sending || !messageInput.value.trim();
+      const busy = !current.ready || current.sending || current.clearing;
+      send.disabled = busy || !messageInput.value.trim();
+      newChat.disabled = busy;
     }
 
     function scrollToLatest() {
@@ -369,7 +377,7 @@
       const source = new EventSource(`${base}/events`);
       const session = current = {
         base, source, messageIds: new Set(), drafts: new Map(), buffer: [],
-        ready: false, sending: false, pending,
+        ready: false, sending: false, clearing: false, pending,
       };
       messages.replaceChildren();
       memoryList.replaceChildren();
@@ -384,6 +392,7 @@
       source.addEventListener('memories', () => {
         if (session === current) void refreshMemories(session);
       });
+      source.addEventListener('history-cleared', () => resetConversation(session));
       for (const type of ['typing', 'delta', 'done', 'cancelled']) {
         source.addEventListener(type, (event) => {
           if (session !== current) return;
@@ -416,12 +425,37 @@
       };
     }
 
+    function resetConversation(session) {
+      if (session !== current) return;
+      session.pending = undefined;
+      messageInput.value = '';
+      openConversation(profile.value);
+    }
+
+    async function startNewChat() {
+      if (newChat.disabled) return;
+      const session = current;
+      session.clearing = true;
+      showNotice();
+      updateComposer();
+      try {
+        const response = await fetch(`${session.base}/history`, { method: 'DELETE' });
+        if (!response.ok) throw new Error('History reset failed');
+        resetConversation(session);
+      } catch {
+        if (session === current) showNotice('Couldn’t start a new chat. Try again.');
+      } finally {
+        session.clearing = false;
+        if (session === current) updateComposer();
+      }
+    }
+
     async function submitMessage(event) {
       event.preventDefault();
       const session = current;
       const input = messageInput.value;
       const content = input.trim();
-      if (!session.ready || session.sending || !content) return;
+      if (!session.ready || session.sending || session.clearing || !content) return;
 
       if (session.pending?.content !== content) {
         session.pending = { content, clientMessageId: crypto.randomUUID() };
@@ -436,7 +470,10 @@
           body: JSON.stringify(session.pending),
         });
         const result = await response.json();
-        if (!response.ok) throw new Error(result.error || 'Couldn’t send the message.');
+        if (!response.ok) {
+          if (response.status === 409) session.pending = undefined;
+          throw new Error(result.error || 'Couldn’t send the message.');
+        }
         if (session !== current) return;
         appendMessage(session, result.message);
         if (messageInput.value === input) messageInput.value = '';
@@ -461,6 +498,7 @@
       if (current.source.readyState === EventSource.OPEN) void loadHistory(current);
       else openConversation(profile.value);
     });
+    newChat.addEventListener('click', startNewChat);
     memoryToggle.addEventListener('click', () => {
       memoryPanel.hidden = !memoryPanel.hidden;
       memoryToggle.setAttribute('aria-expanded', String(!memoryPanel.hidden));

@@ -3,13 +3,15 @@ import type { ChatMessage, SaraDatabase } from "../db.js";
 import type { MemoryExtractor } from "../memory/extractor.js";
 import type { TurnEngine } from "./turn.js";
 
-export type SaraEvent = { generationId: string } & (
+type GenerationEvent = { generationId: string } & (
   | { type: "typing"; userMessage: ChatMessage }
   | { type: "delta"; delta: string }
   | { type: "done"; assistantMessage: ChatMessage }
   | { type: "memories" }
   | { type: "cancelled"; reason?: string }
 );
+
+export type SaraEvent = GenerationEvent | { type: "history-cleared" };
 
 interface Generation {
   id: string;
@@ -37,6 +39,14 @@ export class ThreadCoordinator {
       listeners.delete(listener);
       if (!listeners.size) this.listeners.delete(userId);
     };
+  }
+
+  clearHistory(userId: string): void {
+    this.database.clearHistory(userId);
+    const generation = this.active.get(userId);
+    this.active.delete(userId);
+    generation?.controller.abort();
+    this.publish(userId, { type: "history-cleared" });
   }
 
   submit(userId: string, content: string, clientMessageId: string) {

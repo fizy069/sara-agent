@@ -22,9 +22,11 @@ export function createMemoryStore(database: Database.Database): MemoryStore {
   const list = database.prepare<[string], MemoryFact>(
     "SELECT key, fact, category FROM memories WHERE user_id = ? AND status = 'active' ORDER BY key",
   );
-  const sourceMessage = database.prepare<[string, string], { row: number; generationId: string }>(
+  // Extraction from a completed turn can finish after the conversation is cleared.
+  const sourceMessage = database.prepare<[string, string, MemoryChanges["origin"]], { row: number; generationId: string }>(
     `SELECT rowid AS row, generation_id AS generationId FROM messages
-      WHERE user_id = ? AND id = ? AND role = 'user' AND status = 'committed'`,
+      WHERE user_id = ? AND id = ? AND role = 'user'
+        AND (status = 'committed' OR (status = 'cleared' AND ? = 'extracted'))`,
   );
   const laterForget = database.prepare<[string, number], { found: 1 }>(
     `SELECT 1 AS found FROM memory_deletions AS deletion JOIN messages AS source
@@ -68,7 +70,7 @@ export function createMemoryStore(database: Database.Database): MemoryStore {
   const applyMemoryChanges = database.transaction(({
     userId, sourceMessageId, origin, operations,
   }: MemoryChanges): boolean => {
-    const source = sourceMessage.get(userId, sourceMessageId);
+    const source = sourceMessage.get(userId, sourceMessageId, origin);
     if (!source || (origin === "extracted" && laterForget.get(userId, source.row))) return false;
 
     const updatedAt = new Date().toISOString();
