@@ -14,14 +14,40 @@ export interface MemoryStore {
   applyMemoryChanges(changes: MemoryChanges): boolean;
 }
 
+export interface MemoryCandidate extends MemoryFact {
+  id: string;
+  vector: Buffer | null;
+}
+
+export interface MemoryVectorStore extends MemoryStore {
+  getMemoryCandidates(userId: string, model: string): MemoryCandidate[];
+  saveMemoryVectors(userId: string, model: string, vectors: readonly { id: string; vector: Buffer }[]): void;
+}
+
 function searchable(text: string): string {
   return ` ${text.normalize("NFKC").toLowerCase().replace(/[^\p{L}\p{M}\p{N}]+/gu, " ").trim()} `;
 }
 
-export function createMemoryStore(database: Database.Database): MemoryStore {
+export function createMemoryStore(database: Database.Database): MemoryVectorStore {
   const list = database.prepare<[string], MemoryFact>(
     "SELECT key, fact, category FROM memories WHERE user_id = ? AND status = 'active' ORDER BY key",
   );
+  const candidates = database.prepare<[string, string], MemoryCandidate>(
+    `SELECT memory.id, memory.key, memory.fact, memory.category, embedding.vector
+      FROM memories AS memory LEFT JOIN memory_embeddings AS embedding
+        ON embedding.memory_id = memory.id AND embedding.model = ?
+      WHERE memory.user_id = ? AND memory.status = 'active' ORDER BY memory.key`,
+  );
+  const saveVector = database.prepare<[string, Buffer, string, string]>(
+    `INSERT INTO memory_embeddings (memory_id, model, vector)
+      SELECT id, ?, ? FROM memories WHERE id = ? AND user_id = ? AND status = 'active'
+      ON CONFLICT (memory_id) DO UPDATE SET model = excluded.model, vector = excluded.vector`,
+  );
+  const saveMemoryVectors = database.transaction((
+    userId: string, model: string, vectors: readonly { id: string; vector: Buffer }[],
+  ): void => {
+    for (const { id, vector } of vectors) saveVector.run(model, vector, id, userId);
+  });
   // Extraction from a completed turn can finish after the conversation is cleared.
   const sourceMessage = database.prepare<[string, string, MemoryChanges["origin"]], { row: number; generationId: string }>(
     `SELECT rowid AS row, generation_id AS generationId FROM messages
@@ -41,8 +67,11 @@ export function createMemoryStore(database: Database.Database): MemoryStore {
     `SELECT source.rowid AS sourceRow FROM memory_deletions AS deletion JOIN messages AS source
       ON source.id = deletion.source_message_id WHERE deletion.user_id = ? AND key = ?`,
   );
-  const supersede = database.prepare<[string, string]>(
-    "UPDATE memories SET status = 'superseded' WHERE user_id = ? AND key = ? AND status = 'active'",
+  const supersede = database.prepare<[string, string], { id: string }>(
+    "UPDATE memories SET status = 'superseded' WHERE user_id = ? AND key = ? AND status = 'active' RETURNING id",
+  );
+  const removeVector = database.prepare<[string]>(
+    "DELETE FROM memory_embeddings WHERE memory_id = ?",
   );
   const insert = database.prepare<MemoryFact & { id: string; userId: string; sourceMessageId: string; updatedAt: string }>(
     `INSERT INTO memories (id, user_id, key, fact, category, source_message_id, status, updated_at)
@@ -102,7 +131,8 @@ export function createMemoryStore(database: Database.Database): MemoryStore {
           for (const generationId of generations) hideGeneration.run(userId, generationId);
         }
       } else {
-        supersede.run(userId, key);
+        const previous = supersede.get(userId, key);
+        if (previous) removeVector.run(previous.id);
         insert.run({ ...operation, id: randomUUID(), userId, sourceMessageId, updatedAt });
       }
       changed = true;
@@ -112,6 +142,8 @@ export function createMemoryStore(database: Database.Database): MemoryStore {
 
   return {
     getMemories: (userId) => list.all(userId),
+    getMemoryCandidates: (userId, model) => candidates.all(model, userId),
+    saveMemoryVectors: saveMemoryVectors.immediate,
     applyMemoryChanges: applyMemoryChanges.immediate,
   };
 }

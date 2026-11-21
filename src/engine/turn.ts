@@ -1,5 +1,6 @@
 import { isStepCount, streamText, type LanguageModel, type ModelMessage, type ToolSet } from "ai";
 import type { Channel, ChatMessage, SaraDatabase } from "../db.js";
+import type { MemoryRetriever } from "../memory/retrieval.js";
 import { createTools } from "../tools/index.js";
 import { findUngroundedFinanceNumbers } from "./financeNumbers.js";
 import { assistantText, toStored } from "./messages.js";
@@ -26,6 +27,7 @@ interface TurnOptions {
   reasoning: "none" | "low";
   tools?: ToolSet;
   maxTokens?: number;
+  memory?: Pick<MemoryRetriever, "retrieve">;
 }
 
 const financeTools = new Set(["calculate_emi", "lookup_finance"]);
@@ -55,13 +57,16 @@ export function createTurnEngine(database: SaraDatabase, options: TurnOptions): 
       if (!first) throw new Error("A Sara turn needs at least one persisted user message.");
       const sourceMessageId = utterances.at(-1)!.id;
       const previous = database.getModelHistory(userId, Math.max(0, 12 - utterances.length), first.id);
+      const current = utterances.map(({ content }) => content);
+      const memories = await options.memory?.retrieve(userId, previous, current, signal) ?? [];
+      signal.throwIfAborted();
       const messages: ModelMessage[] = [
         ...previous,
-        ...utterances.map(({ content }) => ({ role: "user" as const, content })),
+        ...current.map((content) => ({ role: "user" as const, content })),
       ];
       const result = streamText({
         model: options.model,
-        instructions: buildPrompt(channel, database.getMemories(userId)),
+        instructions: buildPrompt(channel, memories),
         messages,
         tools: options.tools ?? createTools({ store: database, userId, sourceMessageId }),
         stopWhen: isStepCount(4),

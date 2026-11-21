@@ -10,6 +10,7 @@ Install [Ollama](https://ollama.com/download) and open it, or run `ollama serve`
 
 ```sh
 ollama pull qwen3.5:9b
+ollama pull qwen3-embedding:0.6b
 pnpm install --frozen-lockfile
 pnpm dev
 ```
@@ -25,6 +26,8 @@ Open [Sara on localhost](http://127.0.0.1:3000), choose a demo user, and send a 
 3. Send “I run a stationery shop in Pune.” Open **Memory** and wait for the shop details to appear. Then ask “Please forget where my shop is.”
 
 When you ask Sara to forget a fact, she removes its stored values and hides the related conversation turns from future model context. The chat transcript remains visible in the demo.
+
+Sara stores new and corrected facts in English and keeps names in the spelling and script you give her. She searches the current user's active SQLite facts using multilingual embeddings of the current message and up to four preceding messages from the user or Sara. The reply prompt receives up to five sufficiently similar facts. The Memory panel still shows all active facts. Existing facts stay in the database and gain embeddings as Sara indexes them.
 
 The finance lookup is a stub and returns no verified records.
 
@@ -73,7 +76,7 @@ One local smoke call used Whisper small and Qwen 3.5 9B. Times are in seconds.
 
 ### Switch to OpenAI
 
-When you have a key, set `SARA_MODEL_PROVIDER=openai` and `OPENAI_API_KEY` in `.env`, clear any Ollama model overrides, then restart Sara. Chat defaults to `gpt-6.1-terra` and memory extraction defaults to `gpt-6-luna`. You can override either with `SARA_CHAT_MODEL` or `SARA_MEMORY_MODEL`. Switching providers uses the same SQLite database.
+When you have a key, set `SARA_MODEL_PROVIDER=openai` and `OPENAI_API_KEY` in `.env`, clear any Ollama model overrides, then restart Sara. Chat defaults to `gpt-6.1-terra`, memory extraction to `gpt-6-luna`, and embeddings to `text-embedding-3-small`. You can override them with `SARA_CHAT_MODEL`, `SARA_MEMORY_MODEL`, and `SARA_EMBEDDING_MODEL`. Switching providers uses the same SQLite database and regenerates embeddings for the configured model.
 
 If your database predates the AI SDK migration, you can start with a fresh database by setting `SARA_DB_PATH=data/sara-ai-sdk.sqlite`.
 
@@ -87,7 +90,10 @@ If your database predates the AI SDK migration, you can start with a fresh datab
 | `pnpm voice:dev` | Run the LiveKit voice worker in development mode. |
 | `pnpm voice:start` | Run the compiled voice worker after building it. |
 | `pnpm test` | Run the offline turn-engine checks. |
+| `pnpm check:memory` | Compare similarity-based memory with the full-memory baseline using temporary databases and the configured models. |
 | `pnpm check:replay` | Use the configured chat model to verify that a follow-up can use a tool result after reopening a temporary SQLite database. |
 | `pnpm check:voice` | Make a real LiveKit call with synthetic microphone audio and use local Whisper to check the returned speech. Requires the running stack and `SARA_WHISPER_MODEL`. |
 
 See the [original v1 plan](docs/v1-plan.md) for the text harness and roadmap.
+
+The [memory experiment report](docs/memory-experiment.md) compares multilingual recall, prompt size, and first-audio timing with the full-memory baseline.

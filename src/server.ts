@@ -11,7 +11,9 @@ import { MessageIdConflictError, openDatabase, type Channel } from "./db.js";
 import { ThreadCoordinator } from "./engine/coordinator.js";
 import { createModels } from "./engine/models.js";
 import { createTurnEngine } from "./engine/turn.js";
+import { createMemoryEmbedder } from "./memory/embeddings.js";
 import { createMemoryExtractor } from "./memory/extractor.js";
+import { createMemoryRetriever } from "./memory/retrieval.js";
 
 const reasoning = process.env.SARA_CHAT_REASONING ?? "none";
 if (reasoning !== "none" && reasoning !== "low") {
@@ -20,15 +22,17 @@ if (reasoning !== "none" && reasoning !== "low") {
 
 const models = createModels();
 const database = openDatabase(process.env.SARA_DB_PATH ?? "data/sara.sqlite");
+const memory = createMemoryRetriever(database, createMemoryEmbedder());
 const engine = createTurnEngine(database, {
   model: models.chat,
   reasoning,
+  memory,
 });
 const extract = createMemoryExtractor({
   model: models.memory,
   ...(models.provider === "ollama" ? { reasoning: "none", temperature: 0, timeout: 60_000 } : {}),
 });
-const coordinator = new ThreadCoordinator(database, engine, extract);
+const coordinator = new ThreadCoordinator(database, engine, extract, memory);
 const app = new Hono();
 const users = new Hono();
 const voice = new Hono();

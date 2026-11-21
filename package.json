@@ -9,6 +9,7 @@
   },
   "scripts": {
     "build": "tsc",
+    "check:memory": "node --env-file-if-exists=.env --import tsx scripts/memory-experiment.ts",
     "check:replay": "node --env-file-if-exists=.env --import tsx scripts/replay-check.ts",
     "check:voice": "node --env-file-if-exists=.env scripts/voice-smoke.mjs",
     "dev": "node --watch --env-file-if-exists=.env --import tsx src/server.ts",

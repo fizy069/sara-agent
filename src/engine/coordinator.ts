@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import type { Channel, ChatMessage, SaraDatabase } from "../db.js";
 import type { MemoryExtractor } from "../memory/extractor.js";
+import type { MemoryRetriever } from "../memory/retrieval.js";
 import type { TurnEngine } from "./turn.js";
 
 type GenerationEvent = { generationId: string } & (
@@ -29,6 +30,7 @@ export class ThreadCoordinator {
     private readonly database: SaraDatabase,
     private readonly engine: TurnEngine,
     private readonly extract: MemoryExtractor,
+    private readonly memory?: Pick<MemoryRetriever, "index">,
   ) {}
 
   subscribe(userId: string, listener: Listener): () => void {
@@ -118,6 +120,11 @@ export class ThreadCoordinator {
       }
     } catch {
       console.warn("Sara memory extraction failed.");
+    }
+    try {
+      await this.memory?.index(userId);
+    } catch {
+      console.warn("Sara memory indexing failed.");
     }
   }
 

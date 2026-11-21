@@ -2,6 +2,8 @@ import { z } from "zod";
 
 const key = z.string().max(80).regex(/^[a-z][a-z0-9]*(?:_[a-z0-9]+)*$/);
 
+export const memoryFactWriting = "Write a concise standalone fact in English. Copy each name exactly as the user supplied it, including its spelling, capitalization, and script. Never translate or transliterate a name. Keep numbers and units as stated.";
+
 export interface MemoryFact {
   key: string;
   fact: string;

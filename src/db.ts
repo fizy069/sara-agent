@@ -4,7 +4,7 @@ import { dirname } from "node:path";
 import { modelMessageSchema, type ModelMessage } from "ai";
 import Database from "better-sqlite3";
 import { assistantText } from "./engine/messages.js";
-import { createMemoryStore, type MemoryStore } from "./memory/store.js";
+import { createMemoryStore, type MemoryVectorStore } from "./memory/store.js";
 
 export type Channel = "text" | "voice";
 
@@ -38,7 +38,7 @@ interface CommitTurn {
   messages: readonly ModelMessage[];
 }
 
-export interface SaraDatabase extends MemoryStore {
+export interface SaraDatabase extends MemoryVectorStore {
   saveUserMessage(input: SaveUserMessage): SavedUserMessage;
   getHistory(userId: string): ChatMessage[];
   clearHistory(userId: string): void;
@@ -110,6 +110,12 @@ const migrations = [
     user_id TEXT NOT NULL REFERENCES users(id),
     generation_id TEXT NOT NULL,
     PRIMARY KEY (user_id, generation_id)
+  );`,
+
+  `CREATE TABLE memory_embeddings (
+    memory_id TEXT PRIMARY KEY NOT NULL REFERENCES memories(id) ON DELETE CASCADE,
+    model TEXT NOT NULL,
+    vector BLOB NOT NULL
   );`,
 ];
 
