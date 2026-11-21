@@ -8,8 +8,8 @@ const parameters = Type.Object({
   tenureMonths: Type.Integer({ minimum: 1, maximum: Number.MAX_SAFE_INTEGER }),
 }, { additionalProperties: false });
 
-// Leave room for subtraction when a positive monthly rate is very close to zero.
-const Money = Decimal.clone({ precision: 350, rounding: Decimal.ROUND_HALF_UP });
+// Leave room for subtraction even at the smallest positive rate a JS number can represent.
+const Money = Decimal.clone({ precision: 700, rounding: Decimal.ROUND_HALF_UP });
 
 export const calculateEmi: AgentTool<typeof parameters> = {
   name: "calculate_emi",
@@ -28,7 +28,8 @@ export const calculateEmi: AgentTool<typeof parameters> = {
     const emi = rate.isZero()
       ? amount.div(tenureMonths)
       : amount.times(rate).div(new Money(1).minus(rate.plus(1).pow(-tenureMonths)));
-    const monthlyEmiInr = emi.toFixed(2);
+    // Drop numerical noise from the formula before rounding to paise at a half-cent tie.
+    const monthlyEmiInr = emi.toDecimalPlaces(40).toFixed(2);
 
     return {
       content: [{ type: "text", text: `Monthly EMI: ₹${monthlyEmiInr}.` }],
