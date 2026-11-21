@@ -12,6 +12,7 @@ import { openaiProvider } from "@earendil-works/pi-ai/providers/openai";
 import type { Channel, ChatMessage, SaraDatabase } from "../db.js";
 import { calculateEmi } from "../tools/emi.js";
 import { lookupFinance } from "../tools/financeKb.js";
+import { createMemoryTool } from "../tools/memoryTool.js";
 import { findUngroundedFinanceNumbers } from "./financeNumbers.js";
 import { buildPrompt } from "./prompt.js";
 
@@ -52,17 +53,19 @@ export function createTurnEngine(database: SaraDatabase, options: TurnOptions): 
     // Send effort on the request itself so rebuilding a turn keeps the same input prefix.
     compat: { ...catalog.compat, supportsMidConvoEffort: false },
   };
-  const tools = options.tools ?? [calculateEmi, lookupFinance];
-  const declarations = tools.map(toToolDeclaration);
-
   return {
     async *run({ userId, channel, utterances, signal }) {
       signal.throwIfAborted();
       const first = utterances[0];
       if (!first) throw new Error("A Sara turn needs at least one persisted user message.");
+      const source = utterances.at(-1)!;
+      const tools = options.tools ?? [calculateEmi, lookupFinance, createMemoryTool(database, userId, source.id)];
       const previous = database.getModelHistory(userId, Math.max(0, 12 - utterances.length), first.id);
       const messages: Message[] = [
-        { role: "system", content: buildPrompt(channel), toolsAdded: declarations, timestamp: Date.now() },
+        {
+          role: "system", content: buildPrompt(channel, database.getMemories(userId)),
+          toolsAdded: tools.map(toToolDeclaration), timestamp: Date.now(),
+        },
         ...previous,
         ...utterances.map(({ content, createdAt }) => ({
           role: "user" as const,

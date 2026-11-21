@@ -6,6 +6,7 @@ import { streamSSE } from "hono/streaming";
 import { MessageIdConflictError, openDatabase } from "./db.js";
 import { ThreadCoordinator } from "./engine/coordinator.js";
 import { createTurnEngine } from "./engine/turn.js";
+import { createMemoryExtractor } from "./memory/extractor.js";
 
 const apiKey = process.env.OPENAI_API_KEY?.trim();
 if (!apiKey) throw new Error("Set OPENAI_API_KEY in .env before starting Sara.");
@@ -22,7 +23,12 @@ const engine = createTurnEngine(database, {
   apiKey,
   baseUrl: process.env.OPENAI_BASE_URL,
 });
-const coordinator = new ThreadCoordinator(database, engine);
+const extract = createMemoryExtractor({
+  apiKey,
+  baseURL: process.env.OPENAI_BASE_URL,
+  model: process.env.SARA_MEMORY_MODEL ?? "gpt-6-luna",
+});
+const coordinator = new ThreadCoordinator(database, engine, extract);
 const app = new Hono();
 const users = new Hono();
 
@@ -37,6 +43,7 @@ users.use("/:uid/*", async (c, next) => {
 });
 
 users.get("/:uid/history", (c) => c.json({ messages: database.getHistory(c.req.param("uid")) }));
+users.get("/:uid/memories", (c) => c.json({ memories: database.getMemories(c.req.param("uid")) }));
 
 users.get("/:uid/events", (c) => {
   const userId = c.req.param("uid");

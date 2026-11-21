@@ -3,6 +3,7 @@ import { mkdirSync } from "node:fs";
 import { dirname } from "node:path";
 import type { AssistantMessage, Message, ToolResultMessage, UserMessage } from "@earendil-works/pi-ai";
 import Database from "better-sqlite3";
+import { createMemoryStore, type MemoryStore } from "./memory/store.js";
 
 export type Channel = "text" | "voice";
 
@@ -35,7 +36,7 @@ interface CommitTurn {
   messages: readonly (AssistantMessage | ToolResultMessage)[];
 }
 
-export interface SaraDatabase {
+export interface SaraDatabase extends MemoryStore {
   saveUserMessage(input: SaveUserMessage): SavedUserMessage;
   getHistory(userId: string): ChatMessage[];
   getModelHistory(userId: string, limit?: number, beforeMessageId?: string): Message[];
@@ -93,6 +94,20 @@ const migrations = [
   );
   CREATE UNIQUE INDEX active_memory_by_key
     ON memories(user_id, key) WHERE status = 'active';`,
+
+  `CREATE TABLE memory_deletions (
+    user_id TEXT NOT NULL REFERENCES users(id),
+    key TEXT NOT NULL,
+    source_message_id TEXT NOT NULL REFERENCES messages(id),
+    forget_message_id TEXT REFERENCES messages(id),
+    PRIMARY KEY (user_id, key)
+  );
+
+  CREATE TABLE hidden_model_generations (
+    user_id TEXT NOT NULL REFERENCES users(id),
+    generation_id TEXT NOT NULL,
+    PRIMARY KEY (user_id, generation_id)
+  );`,
 ];
 
 function migrate(database: Database.Database): void {
@@ -151,10 +166,12 @@ function createStore(database: Database.Database): SaraDatabase {
     { userId: string; limit: number; beforeMessageId: string | null },
     { role: Message["role"]; modelJson: string }
   >(
-    `SELECT role, model_json AS modelJson
-      FROM messages WHERE user_id = @userId AND status = 'committed'
-        AND (@beforeMessageId IS NULL OR rowid < (SELECT rowid FROM messages WHERE id = @beforeMessageId))
-      ORDER BY rowid DESC LIMIT @limit`,
+    `SELECT message.role, message.model_json AS modelJson
+      FROM messages AS message WHERE message.user_id = @userId AND message.status = 'committed'
+        AND (@beforeMessageId IS NULL OR message.rowid < (SELECT rowid FROM messages WHERE id = @beforeMessageId))
+        AND NOT EXISTS (SELECT 1 FROM hidden_model_generations AS hidden
+          WHERE hidden.user_id = message.user_id AND hidden.generation_id = message.generation_id)
+      ORDER BY message.rowid DESC LIMIT @limit`,
   );
 
   const saveUserMessage = database.transaction((input: SaveUserMessage): SavedUserMessage => {
@@ -210,6 +227,7 @@ function createStore(database: Database.Database): SaraDatabase {
   });
 
   return {
+    ...createMemoryStore(database),
     saveUserMessage: saveUserMessage.immediate,
     getHistory: (userId) => history.all(userId),
     getModelHistory(userId, limit = 12, beforeMessageId) {
