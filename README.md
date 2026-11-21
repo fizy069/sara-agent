@@ -60,16 +60,16 @@ The backend gives the browser a room-scoped token and dispatches the Sara worker
 
 The local worker transcribes after a pause and uses macOS speech voices. Short pauses can split a sentence, and Hinglish pronunciation depends on the selected system voice. The worker logs timing by stage for smoke testing.
 
-The English and Hindi smoke calls returned audible replies and recalled the fact entered in chat. In a separate call, speaking over Sara stopped the first reply and started a new turn. Whisper garbled the new preference in the Hinglish sample, so that check failed.
+The English and Hindi smoke scenarios verified recall across chat and voice. The English test also transcribes the audio received over LiveKit to check that the reply is intelligible. In a separate call, speaking over Sara stopped the first reply and started a new turn. Whisper garbled the new preference in the Hinglish sample, so that check failed.
 
-Two local smoke calls used Whisper small and Qwen 3.5 9B. Times are in seconds.
+One local smoke call used Whisper small and Qwen 3.5 9B. Times are in seconds.
 
-| Measurement | First call | Repeat call |
-| --- | ---: | ---: |
-| End of test utterance to first audible reply | 8.3 | 2.7 |
-| Whisper transcription | 4.8 | 0.4 |
-| Backend request to first token | 1.0 | 0.2 |
-| First synthesis request to first PCM chunk | 1.4 | 0.8 |
+| Measurement | Seconds |
+| --- | ---: |
+| End of test utterance to first voiced reply audio | 2.3 |
+| Whisper transcription | 0.5 |
+| Backend request to first token | 0.2 |
+| First synthesis request to first PCM chunk | 0.7 |
 
 ### Switch to OpenAI
 
@@ -88,6 +88,6 @@ If your database predates the AI SDK migration, you can start with a fresh datab
 | `pnpm voice:start` | Run the compiled voice worker after building it. |
 | `pnpm test` | Run the offline turn-engine checks. |
 | `pnpm check:replay` | Use the configured chat model to verify that a follow-up can use a tool result after reopening a temporary SQLite database. |
-| `pnpm check:voice` | Make a real LiveKit call with synthetic microphone audio on macOS. Requires the running local stack. |
+| `pnpm check:voice` | Make a real LiveKit call with synthetic microphone audio and use local Whisper to check the returned speech. Requires the running stack and `SARA_WHISPER_MODEL`. |
 
 See the [original v1 plan](docs/v1-plan.md) for the text harness and roadmap.

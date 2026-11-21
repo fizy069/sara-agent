@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { execFile } from "node:child_process";
 import { randomUUID } from "node:crypto";
-import { mkdtemp, readFile, rm } from "node:fs/promises";
+import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { setTimeout as sleep } from "node:timers/promises";
@@ -16,6 +16,9 @@ const sampleRate = 16_000;
 const frameSize = 320;
 const origin = process.env.SARA_BACKEND_URL ?? `http://127.0.0.1:${process.env.PORT ?? 3000}`;
 const user = `voice-smoke-${randomUUID()}`;
+const whisperBin = process.env.SARA_WHISPER_BIN ?? "whisper-cli";
+const whisperModel = process.env.SARA_WHISPER_MODEL;
+assert(whisperModel, "Set SARA_WHISPER_MODEL to transcribe and check the received LiveKit audio.");
 
 async function request(path, body, method = body === undefined ? "GET" : "POST") {
   const res = await fetch(new URL(`/api/users/${user}/${path}`, origin), {
@@ -81,24 +84,54 @@ async function publish(source, pcm) {
   await source.waitForPlayout();
 }
 
+async function transcribeReply(dir, frames) {
+  const pcm = Buffer.concat(frames);
+  const header = Buffer.alloc(44);
+  header.write("RIFF", 0);
+  header.writeUInt32LE(36 + pcm.length, 4);
+  header.write("WAVEfmt ", 8);
+  header.writeUInt32LE(16, 16);
+  header.writeUInt16LE(1, 20); // PCM
+  header.writeUInt16LE(1, 22); // mono
+  header.writeUInt32LE(sampleRate, 24);
+  header.writeUInt32LE(sampleRate * 2, 28);
+  header.writeUInt16LE(2, 32);
+  header.writeUInt16LE(16, 34);
+  header.write("data", 36);
+  header.writeUInt32LE(pcm.length, 40);
+  const wave = join(dir, "received.wav");
+  const output = join(dir, "received");
+  await writeFile(wave, Buffer.concat([header, pcm]));
+  await exec(whisperBin, [
+    "--model", whisperModel, "--language", "en", "--file", wave,
+    "--output-txt", "--output-file", output, "--no-prints",
+  ], { timeout: 30_000 });
+  return (await readFile(`${output}.txt`, "utf8")).trim();
+}
+
 const dir = await mkdtemp(join(tmpdir(), "sara-voice-smoke-"));
 const room = new Room();
+const received = [];
 let source;
+let agent;
 let audio;
 let audioReader;
 let firstAudioAt;
 let voicedFrames = 0;
 let lastSpeechAt;
 
-room.on(RoomEvent.TrackSubscribed, (track) => {
+room.on(RoomEvent.TrackSubscribed, (track, _publication, participant) => {
   if (track.kind !== TrackKind.KIND_AUDIO || audio) return;
+  agent = participant;
   const reader = new AudioStream(track, { sampleRate, numChannels: 1 }).getReader();
   audio = reader;
   audioReader = (async () => {
     while (true) {
       const { done, value } = await reader.read();
       if (done) return;
-      if (lastSpeechAt === undefined || !value.data.some((sample) => Math.abs(sample) > 350)) continue;
+      if (lastSpeechAt === undefined) continue;
+      received.push(Buffer.copyBytesFrom(value.data));
+      if (!value.data.some((sample) => Math.abs(sample) > 350)) continue;
       firstAudioAt ??= performance.now();
       voicedFrames++;
     }
@@ -133,6 +166,11 @@ try {
   assert.match(reply.content, /pune/i, "The voice reply should recall the city from chat");
   await until("audible voice reply in LiveKit", () => voicedFrames >= 15);
   console.log(`Received ${voicedFrames} voiced frames. Fixture end to first audible frame: ${Math.round(firstAudioAt - lastSpeechAt)} ms.`);
+  await until("Sara to finish speaking", () => agent.attributes["lk.agent.state"] === "listening", 30_000);
+  await sleep(300); // allow the receiver to drain its jitter buffer
+  const heard = await transcribeReply(dir, received);
+  console.log(`Reply transcribed from received audio: ${heard}`);
+  assert.match(heard, /\bpune\b/i, "Pune should be intelligible in the actual LiveKit audio");
 
   await until("mango saved in voice memory", async () => (await memories()).some((item) => /mango/i.test(item.fact)));
   await room.disconnect();

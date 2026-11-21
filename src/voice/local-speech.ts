@@ -136,7 +136,8 @@ class MacSpeechStream extends tts.ChunkedStream {
       const samples = new Int16Array(pcm.buffer, pcm.byteOffset, pcm.byteLength / 2);
       const frameSize = ttsSampleRate / 50;
       for (let offset = 0; offset < samples.length; offset += frameSize) {
-        const data = samples.subarray(offset, offset + frameSize);
+        // LiveKit's native bridge reads from the start of the backing buffer.
+        const data = samples.slice(offset, offset + frameSize);
         this.queue.put({
           requestId,
           segmentId: requestId,
