@@ -13,6 +13,19 @@
 - Both channels use the same turn engine, tools, and core instructions. Sara keeps the same personality and matches the user’s language. Voice replies are shorter and spell out numbers so they sound natural when spoken.
 - Chat and calls use the same profile ID to load history and memory. If you tell Sara your shop’s name in chat, she can remember it on a call. What you say on the call also shows up in the same conversation.
 
+### Voice response latency
+
+Sara’s fastest tested setup used Sarvam for transcription and speech synthesis. The median wait from the end of the caller’s speech to the first audible reply was **2.51 s**, compared with **3.30 s** with Whisper transcription and the same Sarvam voice.
+
+| Stage (median) | Sarvam transcription + voice | Whisper transcription + Sarvam voice |
+| --- | ---: | ---: |
+| Speech end to final transcript, including end-of-turn detection | 0.88 s | 1.28 s |
+| Backend request to first reply text from Qwen | 0.29 s | 0.67 s |
+| First reply text to start of speech synthesis | 0.47 s | 0.53 s |
+| Synthesis request to first audio chunk | 0.31 s | 0.33 s |
+
+The benchmark replayed ten turns per setup with warm Qwen and measured first audio at the LiveKit receiver on the same Mac. The total includes handoff and audio delivery, and each stage has its own median. [Latency benchmark](docs/latency-report.md#measured-latency)
+
 ### What I’d change with more time
 
 - Improve how Sara hears and speaks Hinglish, especially on longer calls and when people interrupt.
