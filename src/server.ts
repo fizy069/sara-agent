@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { createRequire } from "node:module";
 import { serve } from "@hono/node-server";
 import { Hono, type Context } from "hono";
@@ -11,8 +11,9 @@ import { MessageIdConflictError, openDatabase, type Channel } from "./db.js";
 import { ThreadCoordinator } from "./engine/coordinator.js";
 import { createModels } from "./engine/models.js";
 import { createTurnEngine } from "./engine/turn.js";
+import { embedFinanceQuery } from "./finance/embeddings.js";
+import { defaultFinanceIndexPath } from "./finance/vectorStore.js";
 import { createMemoryExtractor } from "./memory/extractor.js";
-import { speechProviders } from "./voice/speech-provider.js";
 
 const reasoning = process.env.SARA_CHAT_REASONING ?? "none";
 if (reasoning !== "none" && reasoning !== "low") {
@@ -26,7 +27,6 @@ const engine = createTurnEngine(database, {
   summaryModel: models.memory,
   contextWindow: models.contextWindow,
   reasoning,
-  sarvamVoice: speechProviders().tts === "sarvam",
 });
 const extract = createMemoryExtractor({
   model: models.memory,
@@ -183,4 +183,9 @@ const hostname = process.env.HOST ?? "127.0.0.1";
 serve({ fetch: app.fetch, port, hostname }, (address) => {
   console.log(`Sara is using ${models.provider} (chat: ${models.chat.modelId}, context target: ${models.contextWindow} tokens, memory: ${models.memory.modelId})`);
   console.log(`Sara is listening at http://${hostname}:${address.port}`);
+  if (existsSync(process.env.SARA_FINANCE_DB_PATH ?? defaultFinanceIndexPath)) {
+    void embedFinanceQuery("Indian small-business finance", AbortSignal.timeout(30_000))
+      .then(() => console.log("Sara finance embedding model is ready."))
+      .catch((error: unknown) => console.warn("Sara could not warm the finance embedding model.", error));
+  }
 });

@@ -41,6 +41,8 @@ The indexer downloads the full article text of ten [source documents](src/financ
 
 Chat and voice share this index. `lookup_finance` asks the model for an English query regardless of the user's language, then uses `sqlite-vec` to find the closest document by cosine similarity. It returns one whole document with its publisher and source URL when the match clears the threshold. Lookups use the local Ollama embedding endpoint and the saved index.
 
+When the index exists, Sara warms the embedding model in the background at backend startup. Finance queries ask Ollama to keep it loaded indefinitely. Ollama can still evict it when another model needs the memory. [Ollama model loading](https://docs.ollama.com/faq#how-do-i-keep-a-model-loaded-in-memory-or-make-it-unload-immediately)
+
 | Topic | Supported questions |
 | --- | --- |
 | MUDRA and term loans | PMMY tiers and Tarun Plus eligibility, and what to check in a Key Facts Statement, including APR and the repayment schedule |
@@ -76,16 +78,16 @@ Keep Ollama running. Run `livekit-server --dev`, `pnpm dev`, and `pnpm voice:dev
 2. Call from the same demo profile and ask “Do you remember the name of my shop?”
 3. On the call, mention a new detail and hang up after Sara replies. Ask about it in chat. Look for **You · Voice** and **Sara · Voice** in the shared conversation.
 
-### Try Sarvam for Hinglish speech
+### Try Sarvam for voice replies
 
-Keep Whisper for transcription and add these settings to `.env`. Restart both `pnpm dev` and `pnpm voice:dev` so the backend formats Hindi and English for synthesis and the worker uses the same voice on every call.
+Keep Whisper for transcription and add these settings to `.env`. Restart `pnpm voice:dev` to switch to Sarvam synthesis.
 
 ```dotenv
 SARA_TTS_PROVIDER=sarvam
 SARVAM_API_KEY=replace-with-your-key
 ```
 
-Sara uses Bulbul v4 Flash with Ishita’s Hinglish voice. Try saying “Aaj dukaan mein rush tha, lekin payment abhi tak nahi aaya.” End the call and repeat it from another demo profile to hear the same speaker in a new session. Set `SARVAM_TTS_SPEAKER=simran_enhi_customer` and restart the worker if you want to compare voices. [Sarvam voice guide](https://docs.sarvam.ai/api/api-guides-tutorials/text-to-speech/best-practices#writing-text-for-natural-speech).
+Sara uses Bulbul v4 Flash with Ishita and the Indian English locale for synthesis. Set `SARVAM_TTS_SPEAKER=simran_enhi_customer` and restart the worker to try another voice. [Sarvam voice guide](https://docs.sarvam.ai/api/api-guides-tutorials/text-to-speech/best-practices#writing-text-for-natural-speech).
 
 To use Sarvam for microphone transcription too, set `SARA_SPEECH_PROVIDER=sarvam`. Sarvam bills transcription separately. [Sarvam API pricing](https://www.sarvam.ai/api-pricing).
 
@@ -93,7 +95,7 @@ To use Sarvam for microphone transcription too, set `SARA_SPEECH_PROVIDER=sarvam
 
 The backend gives the browser a room-scoped token and dispatches the Sara worker. LiveKit detects speech and interruptions, and the worker sends the final transcript to the backend. The same coordinator handles typed and spoken turns. It streams the reply to both the browser transcript and the worker, which synthesizes audio into the room. If the caller interrupts while a reply is generating, the worker closes the reply stream and the backend cancels that generation. A reply that has already committed remains in history even if the caller interrupts playback.
 
-The local worker transcribes after a pause and uses macOS speech voices. Short pauses can split a sentence, and Hinglish pronunciation depends on the selected system voice. The worker logs timing by stage for smoke testing.
+Sara replies in English on calls, including when the caller speaks Hindi or Hinglish. Typed replies follow the language of the latest message. The local worker transcribes after a pause and uses the macOS Tara voice. Short pauses can split a sentence. The worker logs timing by stage for smoke testing.
 
 The English and Hindi smoke scenarios verified recall across chat and voice. The English test also transcribes the audio received over LiveKit to check that the reply is intelligible. In a separate call, speaking over Sara stopped the first reply and started a new turn. Whisper garbled the new preference in the Hinglish sample, so that check failed.
 

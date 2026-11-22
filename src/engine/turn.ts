@@ -27,7 +27,6 @@ interface TurnOptions {
   summaryModel?: LanguageModel;
   contextWindow?: number;
   reasoning: "none" | "low";
-  sarvamVoice?: boolean;
   tools?: ToolSet;
   maxTokens?: number;
 }
@@ -67,7 +66,7 @@ export function createTurnEngine(database: SaraDatabase, options: TurnOptions): 
       });
       signal.throwIfAborted();
       const messages = [...previous, ...current];
-      const instructions = buildPrompt(channel, database.getMemories(userId), options.sarvamVoice);
+      const instructions = buildPrompt(channel, database.getMemories(userId));
       const result = streamText({
         model: options.model,
         instructions: summary ? instructions + summaryContext(summary) : instructions,

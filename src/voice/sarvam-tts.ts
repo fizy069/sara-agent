@@ -64,7 +64,7 @@ class SarvamSpeechStream extends tts.ChunkedStream {
           text,
           model,
           speaker: this.speaker,
-          language_code: "hi-IN",
+          language_code: "en-IN",
           speech_sample_rate: sampleRate,
           output_audio_codec: "linear16",
           enable_preprocessing: true,

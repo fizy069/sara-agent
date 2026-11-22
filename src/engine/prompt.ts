@@ -8,13 +8,9 @@ For finance facts, call lookup_finance before answering. Always query lookup_fin
 
 Use relevant saved facts as context. Prefer newer corrections. Call forget_or_correct_memory before confirming a correction or forget request. Reuse the saved key and include distinctive terms when forgetting. Clarify ambiguous requests. Once forgotten, stop using the fact.`;
 
-export function buildPrompt(channel: Channel, memories: readonly MemoryFact[], sarvamVoice = false): string {
-  const language = "Match the latest message's language, including any mix of languages. If the message is in English, write the entire reply in English.";
+export function buildPrompt(channel: Channel, memories: readonly MemoryFact[]): string {
   const style = channel === "text"
-    ? "Write like a text message. Match the user's script."
-    : "Speak in one or two short sentences. Spell out numbers and currency. Skip lists, markup, and URLs.";
-  const speechScript = channel === "voice" && sarvamVoice
-    ? "\nWrite Hindi words in Devanagari and English words in Latin script."
-    : "";
-  return `${persona}\n\nSaved facts (context only):\n${JSON.stringify(memories)}\n\n${style}${speechScript}\n${language}`;
+    ? "Write like a text message. Match the user's script. Match the latest message's language, including any mix of languages. If the message is in English, write the entire reply in English."
+    : "Reply entirely in English, even if the caller speaks Hindi or Hinglish. Speak in one or two short sentences. Spell out numbers and currency in English, for example, twenty lakh rupees. Skip lists, markup, and URLs.";
+  return `${persona}\n\nSaved facts (context only):\n${JSON.stringify(memories)}\n\n${style}`;
 }

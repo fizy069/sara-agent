@@ -126,10 +126,9 @@ class MacSpeechStream extends tts.ChunkedStream {
       const input = join(dir, "reply.txt");
       const output = join(dir, "reply.wav");
       const text = this.inputText.replace(/\[\[[\s\S]*?\]\]/g, "").trim();
-      const voice = devanagari.test(text) ? "Lekha" : "Tara";
       await writeFile(input, text, { signal: this.abortSignal });
       await run("/usr/bin/say", [
-        "-v", voice, "--file-format=WAVE", `--data-format=LEI16@${ttsSampleRate}`,
+        "-v", "Tara", "--file-format=WAVE", `--data-format=LEI16@${ttsSampleRate}`,
         "-f", input, "-o", output,
       ], { signal: this.abortSignal, timeout: 10_000 });
       const pcm = wavPcm(await readFile(output));

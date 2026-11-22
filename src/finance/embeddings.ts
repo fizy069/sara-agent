@@ -1,12 +1,13 @@
 import { z } from "zod";
 
 const embeddingModel = "qwen3-embedding:0.6b";
+const keepLoaded = -1;
 export const financeEmbeddingDimensions = 1024;
 const embeddingResponse = z.object({
   embeddings: z.array(z.array(z.number()).length(financeEmbeddingDimensions)),
 });
 
-export async function embedFinanceText(input: string[], signal: AbortSignal): Promise<number[][]> {
+export async function embedFinanceText(input: string[], signal: AbortSignal, keepAlive?: number): Promise<number[][]> {
   const base = process.env.OLLAMA_BASE_URL ?? "http://127.0.0.1:11434/v1";
   const url = new URL(base);
   const path = url.pathname.replace(/\/$/, "").replace(/\/v1$/, "");
@@ -14,7 +15,7 @@ export async function embedFinanceText(input: string[], signal: AbortSignal): Pr
   const response = await fetch(url, {
     method: "POST",
     headers: { "content-type": "application/json" },
-    body: JSON.stringify({ model: embeddingModel, input, truncate: false }),
+    body: JSON.stringify({ model: embeddingModel, input, truncate: false, keep_alive: keepAlive }),
     signal,
   });
   if (!response.ok) throw new Error(`Ollama embedding request failed with HTTP ${response.status}.`);
@@ -25,6 +26,6 @@ export async function embedFinanceText(input: string[], signal: AbortSignal): Pr
 
 export async function embedFinanceQuery(query: string, signal: AbortSignal): Promise<number[]> {
   const input = `Instruct: Given a question about personal or small-business finance in India, retrieve a source document that answers the question.\nQuery: ${query}`;
-  const [embedding] = await embedFinanceText([input], signal);
+  const [embedding] = await embedFinanceText([input], signal, keepLoaded);
   return embedding;
 }
