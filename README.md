@@ -28,7 +28,29 @@ Open [Sara on localhost](http://127.0.0.1:3000), choose a demo user, and send a 
 
 When you ask Sara to forget a fact, she removes its stored values and hides the related conversation turns from future model context. The chat transcript remains visible in the demo.
 
-The finance lookup is a stub and returns no verified records.
+### Finance lookup
+
+With Ollama running, build the finance index once after installing dependencies. These commands also apply when OpenAI provides the chat model.
+
+```sh
+ollama pull qwen3-embedding:0.6b
+pnpm finance:index
+```
+
+The indexer downloads the full article text of ten [source documents](src/finance/sources.ts), embeds each whole document once, and stores the text, source URL, and vector in `data/finance.sqlite`. The index includes HTML article bodies and tables. Linked attachments stay at the original source. Re-run `pnpm finance:index` to refresh the local copy. Set `SARA_FINANCE_DB_PATH` to use a different database file.
+
+Chat and voice share this index. `lookup_finance` asks the model for an English query regardless of the user's language, then uses `sqlite-vec` to find the closest document by cosine similarity. It returns one whole document with its publisher and source URL when the match clears the threshold. Lookups use the local Ollama embedding endpoint and the saved index.
+
+| Topic | Supported questions |
+| --- | --- |
+| MUDRA and term loans | PMMY tiers and Tarun Plus eligibility, and what to check in a Key Facts Statement, including APR and the repayment schedule |
+| Udyam | Online MSME registration and how Aadhaar and PAN validation work on the portal |
+| Credit reports | Getting a free CRIF High Mark report and where to raise a dispute about it |
+| Digital payments | RBI's turnaround and compensation framework for failed transactions, including UPI transfers and merchant payments |
+| GST | CBIC guidance on GST registration paperwork and basic e-invoicing and invoice reference numbers |
+| Digital lending and complaints | RBI's directory of digital lending apps and the purpose of the RBI Ombudsman scheme |
+
+For questions beyond these documents, such as a live lender rate or the status of a specific payment, Sara is instructed to give a concrete place to check. Try “Mera UPI transfer debit ho gaya, lekin receiver ko nahi mila. Ab kya?”
 
 ## Make a browser call on macOS
 
@@ -100,6 +122,7 @@ If your database predates the AI SDK migration, you can start with a fresh datab
 | `pnpm voice:dev` | Run the LiveKit voice worker in development mode. |
 | `pnpm voice:start` | Run the compiled voice worker after building it. |
 | `pnpm test` | Run the offline turn-engine checks. |
+| `pnpm finance:index` | Download the source documents and rebuild the local vector index. Requires Ollama and the embedding model. |
 | `pnpm check:replay` | Use the configured chat model to verify that a follow-up can use a tool result after reopening a temporary SQLite database. |
 | `pnpm check:voice` | Make a real LiveKit call with synthetic microphone audio and use local Whisper to check the returned speech. Requires the running stack and `SARA_WHISPER_MODEL`. |
 

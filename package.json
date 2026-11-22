@@ -11,6 +11,7 @@
     "build": "tsc",
     "check:replay": "node --env-file-if-exists=.env --import tsx scripts/replay-check.ts",
     "check:voice": "node --env-file-if-exists=.env scripts/voice-smoke.mjs",
+    "finance:index": "node --env-file-if-exists=.env --import tsx scripts/index-finance.ts",
     "dev": "node --watch --env-file-if-exists=.env --import tsx src/server.ts",
     "start": "node --env-file-if-exists=.env dist/server.js",
     "voice:dev": "node --env-file-if-exists=.env --import tsx src/voice/worker.ts dev",
@@ -31,11 +32,13 @@
     "hono": "4.13.19",
     "livekit-client": "2.25.0",
     "livekit-server-sdk": "2.20.1",
+    "sqlite-vec": "0.1.9",
     "zod": "4.6.7"
   },
   "devDependencies": {
     "@types/better-sqlite3": "9.6.0",
     "@types/node": "24.19.2",
+    "cheerio": "1.2.0",
     "tsx": "4.23.15",
     "typescript": "5.9.3",
     "vitest": "5.1.1"

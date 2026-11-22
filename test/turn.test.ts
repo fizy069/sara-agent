@@ -5,6 +5,10 @@ import { MockLanguageModelV4, convertArrayToReadableStream } from "ai/test";
 import { afterEach, beforeEach, expect, test } from "vitest";
 import { openDatabase, type SaraDatabase } from "../src/db.js";
 import { createTurnEngine, type TurnEvent } from "../src/engine/turn.js";
+import { financeEmbeddingDimensions } from "../src/finance/embeddings.js";
+import { replaceFinanceIndex } from "../src/finance/vectorStore.js";
+import { createTools } from "../src/tools/index.js";
+import { createLookupFinance } from "../src/tools/financeKb.js";
 
 type MockStreamResult = Awaited<ReturnType<MockLanguageModelV4["doStream"]>>;
 type MockStreamPart = MockStreamResult["stream"] extends ReadableStream<infer Part> ? Part : never;
@@ -152,6 +156,46 @@ test("executes the EMI tool and preserves the full exchange across a SQLite reop
   database = openDatabase(databasePath);
 
   expect(database.getModelHistory(userId)).toEqual([{ role: "user", content }, ...final.messages]);
+});
+
+test("passes sourced finance evidence back to the model after an English query on a Hinglish turn", async () => {
+  const indexPath = join(directory, "finance.sqlite");
+  const embedding = Array.from({ length: financeEmbeddingDimensions }, (_, index) => Number(index === 0));
+  replaceFinanceIndex(indexPath, [{
+    title: "UPI payment help", publisher: "Test publisher", url: "https://example.com/upi-help",
+    content: "Check the transaction history in the payment app.", embedding,
+  }]);
+  const model = new MockLanguageModelV4({ doStream: [stream({
+    type: "tool-call",
+    toolName: "lookup_finance",
+    toolCallId: "finance",
+    input: JSON.stringify({ query: "UPI payment pending" }),
+  }, finish("tool-calls")), reply("App ki transaction history mein status check karo.")] });
+  const { message } = database.saveUserMessage({
+    userId, generationId, channel, clientMessageId: "user", content: "UPI payment atak gaya, status kaise check karun?",
+  });
+  const tools = {
+    ...createTools({ store: database, userId, sourceMessageId: message.id }),
+    lookup_finance: createLookupFinance(indexPath, async (query) => {
+      expect(query).toBe("UPI payment pending");
+      return embedding;
+    }),
+  };
+  const engine = createTurnEngine(database, { model, reasoning: "none", tools });
+  const events = await collect(engine.run({ userId, channel, utterances: [message], signal: new AbortController().signal }));
+
+  expect(model.doStreamCalls[0].prompt).toContainEqual(expect.objectContaining({
+    role: "system", content: expect.stringContaining("Always query lookup_finance in English"),
+  }));
+  const final = events.at(-1);
+  if (final?.type !== "complete") throw new Error("Expected a completed turn.");
+  expect(final.messages.find(({ role }) => role === "tool")?.content[0]).toMatchObject({
+    toolName: "lookup_finance",
+    output: { type: "json", value: { matches: [{
+      publisher: "Test publisher",
+      url: "https://example.com/upi-help",
+    }] } },
+  });
 });
 
 test("aborts during a streamed step without completing", async () => {
