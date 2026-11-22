@@ -27,7 +27,7 @@ What a good Sara does in chat. How you get there is up to you.
 - She copes with how people really message. Three messages in a row, or a new one while she is still replying.
 - She does one calculation: the EMI on a loan. The number must be right every time.
 
-In your design note, tell us which of these you trust the model to do and which you do not, and why.
+In your design note, tell us which of these you trust the model to do and which you do not, and why.  
 
 Out of scope for Part A: WhatsApp integration, authentication, documents and images, multi-step workflows.
 

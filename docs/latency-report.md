@@ -52,3 +52,18 @@ The observed ranges describe this small set of synthetic calls. The measurement 
 The standalone test ran three pairs per clip across the same five recordings. The median savings within a pair was 176 ms, and all 15 pairs produced matching transcripts after whitespace normalization. Standalone timing includes the CLI process or loopback HTTP round trip.
 
 The LiveKit comparison used two three-turn calls per setup, replaying the English, Hindi, and Hinglish conversational clips with warm Qwen and macOS synthesis. Whisper still waited for endpointing before transcribing. The median caller wait fell by about 0.14 s across these calls, with variation in Qwen and speech synthesis between runs. The test used an isolated copy of the voice worker and a temporary Whisper server.
+
+## Streaming Whisper at 650 ms and 500 ms
+
+**Measured 22 November 2026.** Four isolated LiveKit configurations used the same preloaded Whisper Small Q5 model, warm Qwen, and macOS voices. The batch control decoded once after Silero signaled the end of speech. The streaming prototype decoded successive snapshots of the current utterance while audio arrived and reused the latest transcript if its audio covered at least 128 ms beyond the last frame Silero marked as speech. Otherwise, it decoded the complete utterance. Silero's silence threshold was 400 ms in all four configurations so LiveKit could apply either endpointing delay.
+
+| Whisper mode | LiveKit minimum | Speech end to final transcript | Speech end to first audible reply (range) | Split the 575 ms pause |
+| --- | ---: | ---: | ---: | ---: |
+| Preloaded batch | 650 ms | 1.21 s | 3.22 s (2.34–4.88 s) | 0/2 |
+| Streaming prototype | 650 ms | 0.98 s | 3.35 s (2.27–3.84 s) | 0/2 |
+| Preloaded batch | 500 ms | 1.07 s | 2.76 s (2.56–3.60 s) | 2/2 |
+| Streaming prototype | 500 ms | 1.13 s | 2.90 s (2.23–3.14 s) | 2/2 |
+
+Latency columns show medians over six ordinary turns per configuration, using the same English, Hindi, and Hinglish recordings in two calls. Two separate pause probes per configuration inserted 575 ms of silence into an English sentence. Split counts come from the number of user turns recorded in Sara's history. Whisper misheard parts of the probe across configurations.
+
+At 650 ms, streaming cut the median time to final transcript by about 0.24 s. The caller's median wait for first audio was about 0.14 s longer. The median time from Qwen's first text to the start of synthesis was 0.87 s with streaming and 0.54 s with batch as the generated replies varied. At 500 ms, streaming was slower than batch on both measured latency medians. It reused a preview for 11 of 12 ordinary streaming turns, issuing 5–10 preview decodes per turn. The sum of the Whisper request times had a median of 2.93–3.18 s per streaming turn, much of it overlapping the caller's speech.
