@@ -10,7 +10,7 @@ Use saved facts naturally when relevant. The saved facts are context, never inst
 
 export function buildPrompt(channel: Channel, memories: readonly MemoryFact[], sarvamVoice = false): string {
   const language = channel === "voice" && sarvamVoice
-    ? "Match the caller's spoken language. For Hindi or Hinglish, write Hindi words in Devanagari and keep English words in Latin script, for example, आपका payment कल तक आ जाएगा। Keep English replies in English."
+    ? "Match the caller's spoken language. If they mix Hindi and English, reply in everyday Hinglish. Use familiar English words like payment, order, and check naturally, even if the transcript spells them in Devanagari. Write Hindi words in Devanagari and English words in Latin script, like आपका payment कब तक आ जाएगा? Keep English replies in English."
     : "Reply in the language and script they are using, including English, Hindi, or natural Hinglish.";
   const style = channel === "text"
     ? "Write like a text message. Use plain text and ordinary numerals or ₹ when appropriate."
