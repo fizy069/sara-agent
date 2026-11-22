@@ -2,7 +2,7 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { MockLanguageModelV4, convertArrayToReadableStream } from "ai/test";
-import { afterEach, beforeEach, expect, test } from "vitest";
+import { afterEach, beforeEach, expect, test, vi } from "vitest";
 import { openDatabase, type SaraDatabase } from "../src/db.js";
 import { createTurnEngine, type TurnEvent } from "../src/engine/turn.js";
 import { financeEmbeddingDimensions } from "../src/finance/embeddings.js";
@@ -17,6 +17,11 @@ const userId = "turn-test";
 const generationId = "generation";
 const channel = "text";
 const content = "What is the monthly EMI for ₹5 lakh at 12% over 36 months?";
+const oldBackground = "पुरानी बातचीत। ".repeat(190);
+const usage = {
+  inputTokens: { total: 20, noCache: 20, cacheRead: 0, cacheWrite: 0 },
+  outputTokens: { total: 10, text: 10, reasoning: 0 },
+};
 
 let directory: string;
 let databasePath: string;
@@ -37,10 +42,7 @@ function finish(unified: "stop" | "tool-calls"): MockStreamPart {
   return {
     type: "finish",
     finishReason: { unified, raw: undefined },
-    usage: {
-      inputTokens: { total: 20, noCache: 20, cacheRead: 0, cacheWrite: 0 },
-      outputTokens: { total: 10, text: 10, reasoning: 0 },
-    },
+    usage,
   };
 }
 
@@ -134,6 +136,113 @@ test("sends the current message even when it uses the whole conversation budget"
   expect(model.doStreamCalls[0].prompt.filter(({ role }) => role !== "system")).toEqual([
     { role: "user", content: [{ type: "text", text: content }] },
   ]);
+});
+
+test("rolls older excerpts into a persisted summary and keeps recent exchanges verbatim", async () => {
+  const firstSummary = "The user's shop is called Paper Trail.";
+  const nextSummary = `${firstSummary} They plan to try Sunday hours.`;
+  const summaryModel = new MockLanguageModelV4({
+    doGenerate: [firstSummary, nextSummary].map((text) => ({
+      content: [{ type: "text", text }], finishReason: { unified: "stop", raw: undefined }, usage,
+    })),
+  });
+  const model = new MockLanguageModelV4({ doStream: async () => reply("Hello.") });
+
+  function save(id: string, content: string, channel: "text" | "voice" = "text") {
+    return database.saveUserMessage({ userId, channel, generationId: id, clientMessageId: id, content }).message;
+  }
+
+  function ask(id: string, channel: "text" | "voice" = "text") {
+    const utterance = save(id, "What's next?", channel);
+    const engine = createTurnEngine(database, { model, summaryModel, reasoning: "none" });
+    return collect(engine.run({ userId, channel, utterances: [utterance], signal: new AbortController().signal }));
+  }
+
+  save("old", `My shop is called Paper Trail. ${oldBackground}`);
+  save("recent", "Please call me tomorrow.");
+  database.commitTurn({ userId, channel, generationId: "recent", messages: [{ role: "assistant", content: "Tomorrow works." }] });
+  await ask("first");
+
+  expect(summaryModel.doGenerateCalls).toHaveLength(1);
+  const summaryInput = JSON.stringify(summaryModel.doGenerateCalls[0].prompt);
+  expect(summaryInput).toContain("My shop is called Paper Trail.");
+  expect(summaryInput).not.toContain("Please call me tomorrow.");
+  const prompt = model.doStreamCalls[0].prompt;
+  expect(prompt[0].content).toContain(firstSummary);
+  expect(prompt.slice(1)).toEqual([
+    { role: "user", content: [{ type: "text", text: "Please call me tomorrow." }] },
+    { role: "assistant", content: [{ type: "text", text: "Tomorrow works." }] },
+    { role: "user", content: [{ type: "text", text: "What's next?" }] },
+  ]);
+  expect(database.getHistory(userId).map(({ content }) => content)).not.toContain(firstSummary);
+
+  database.close();
+  database = openDatabase(databasePath);
+  await ask("second", "voice");
+  expect(model.doStreamCalls[1].prompt[0].content).toContain(firstSummary);
+  expect(summaryModel.doGenerateCalls).toHaveLength(1);
+
+  save("more", `I plan to try Sunday hours. ${oldBackground}`);
+  await ask("third");
+  expect(JSON.stringify(summaryModel.doGenerateCalls[1].prompt)).toContain(firstSummary);
+  expect(model.doStreamCalls[2].prompt[0].content).toContain(nextSummary);
+});
+
+test("discards summaries on forget or clear and rejects an update from before a forget", () => {
+  database.saveUserMessage({
+    userId, channel, generationId: "old", clientMessageId: "old", content: `My shop is in Pune. ${oldBackground}`,
+  });
+  const current = database.saveUserMessage({
+    userId, channel, generationId, clientMessageId: "current", content: "What did we discuss?",
+  }).message;
+  const readContext = () => database.getModelContext(userId, current.id, 1_900, 256);
+  const { update } = readContext();
+  if (!update) throw new Error("Expected history to exceed the conversation budget.");
+  database.saveConversationSummary(userId, current.id, update, "Their shop is in Pune.");
+  expect(readContext().summary).toBe("Their shop is in Pune.");
+
+  database.applyMemoryChanges({ userId, sourceMessageId: current.id, origin: "explicit", operations: [
+    { action: "delete", key: "shop_city", historyTerms: ["Pune"] },
+  ] });
+  database.saveConversationSummary(userId, current.id, update, "Their shop is in Pune.");
+  expect(readContext().summary).toBeUndefined();
+  expect(readContext().update).toBeUndefined();
+
+  database.saveUserMessage({
+    userId, channel, generationId: "new-old", clientMessageId: "new-old", content: oldBackground,
+  });
+  const last = database.saveUserMessage({
+    userId, channel, generationId: "last", clientMessageId: "last", content: "Anything else?",
+  }).message;
+  const newUpdate = database.getModelContext(userId, last.id, 1_900, 256).update;
+  if (!newUpdate) throw new Error("Expected history to exceed the conversation budget again.");
+  database.saveConversationSummary(userId, last.id, newUpdate, "New summary.");
+  expect(database.getModelContext(userId, last.id, 1_900, 256).summary).toBe("New summary.");
+  database.clearHistory(userId);
+  const afterClear = database.saveUserMessage({
+    userId, channel, generationId: "after", clientMessageId: "after", content: "Hello again.",
+  }).message;
+  expect(database.getModelContext(userId, afterClear.id, 1_900, 256)).toEqual({ messages: [], summary: undefined });
+});
+
+test("still replies with recent history when the summary model fails", async () => {
+  database.saveUserMessage({ userId, channel, generationId: "old", clientMessageId: "old", content: oldBackground });
+  database.saveUserMessage({ userId, channel, generationId: "recent", clientMessageId: "recent", content: "Recent message" });
+  const { message } = database.saveUserMessage({ userId, channel, generationId, clientMessageId: "user", content });
+  const model = new MockLanguageModelV4({ doStream: reply("Hello.") });
+  const summaryModel = new MockLanguageModelV4({ doGenerate: async () => { throw new Error("Unavailable"); } });
+  const engine = createTurnEngine(database, { model, summaryModel, reasoning: "none" });
+  const warn = vi.spyOn(console, "warn").mockImplementationOnce(() => {});
+  try {
+    await collect(engine.run({ userId, channel, utterances: [message], signal: new AbortController().signal }));
+    expect(warn).toHaveBeenCalledWith("Sara conversation summarization failed.");
+    expect(model.doStreamCalls[0].prompt.slice(1)).toEqual([
+      { role: "user", content: [{ type: "text", text: "Recent message" }] },
+      { role: "user", content: [{ type: "text", text: content }] },
+    ]);
+  } finally {
+    warn.mockRestore();
+  }
 });
 
 test("executes the EMI tool and preserves the full exchange across a SQLite reopen", async () => {

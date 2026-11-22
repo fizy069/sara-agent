@@ -23,6 +23,7 @@ const models = createModels();
 const database = openDatabase(process.env.SARA_DB_PATH ?? "data/sara.sqlite");
 const engine = createTurnEngine(database, {
   model: models.chat,
+  summaryModel: models.memory,
   contextWindow: models.contextWindow,
   reasoning,
   sarvamVoice: speechProviders().tts === "sarvam",

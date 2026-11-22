@@ -1,7 +1,7 @@
 import { isStepCount, streamText, type LanguageModel, type ModelMessage, type ToolSet } from "ai";
 import type { Channel, ChatMessage, SaraDatabase } from "../db.js";
 import { createTools } from "../tools/index.js";
-import { conversationTokenBudget, estimateMessageTokens } from "./context.js";
+import { conversationTokenBudget, estimateMessageTokens, getRollingContext, summaryContext } from "./context.js";
 import { findUngroundedFinanceNumbers } from "./financeNumbers.js";
 import { assistantText, toStored } from "./messages.js";
 import { buildPrompt } from "./prompt.js";
@@ -24,6 +24,7 @@ export interface TurnEngine {
 
 interface TurnOptions {
   model: LanguageModel;
+  summaryModel?: LanguageModel;
   contextWindow?: number;
   reasoning: "none" | "low";
   sarvamVoice?: boolean;
@@ -60,11 +61,16 @@ export function createTurnEngine(database: SaraDatabase, options: TurnOptions): 
       const sourceMessageId = utterances.at(-1)!.id;
       const current: ModelMessage[] = utterances.map(({ content }) => ({ role: "user", content }));
       const currentTokens = current.reduce((sum, message) => sum + estimateMessageTokens(JSON.stringify(message)), 0);
-      const previous = database.getModelHistory(userId, tokenBudget - currentTokens, first.id);
+      const { messages: previous, summary } = await getRollingContext(database, {
+        userId, beforeMessageId: first.id, tokenBudget: tokenBudget - currentTokens,
+        model: options.summaryModel, signal,
+      });
+      signal.throwIfAborted();
       const messages = [...previous, ...current];
+      const instructions = buildPrompt(channel, database.getMemories(userId), options.sarvamVoice);
       const result = streamText({
         model: options.model,
-        instructions: buildPrompt(channel, database.getMemories(userId), options.sarvamVoice),
+        instructions: summary ? instructions + summaryContext(summary) : instructions,
         messages,
         tools: options.tools ?? createTools({ store: database, userId, sourceMessageId }),
         stopWhen: isStepCount(4),
