@@ -13,13 +13,31 @@ import {
 import * as sarvam from "@livekit/agents-plugin-sarvam";
 import { VAD as SileroVAD } from "@livekit/agents-plugin-silero";
 import { MacTTS, WhisperSTT } from "./local-speech.js";
+import { SarvamTTS } from "./sarvam-tts.js";
+import { speechProviders } from "./speech-provider.js";
 
 interface VoiceConfig {
   token: string;
   backendUrl: string;
-  speech:
+  stt:
     | { provider: "local"; modelPath: string; executable: string }
     | { provider: "sarvam"; apiKey: string };
+  tts: { provider: "local" } | { provider: "sarvam"; apiKey: string; speaker?: string };
+}
+
+function sarvamApiKey(): string {
+  const apiKey = process.env.SARVAM_API_KEY?.trim();
+  if (!apiKey) throw new Error("Set SARVAM_API_KEY to use Sarvam speech.");
+  return apiKey;
+}
+
+function whisperConfig(): VoiceConfig["stt"] {
+  const modelPath = process.env.SARA_WHISPER_MODEL;
+  if (!modelPath || !existsSync(modelPath)) {
+    throw new Error("Set SARA_WHISPER_MODEL to an existing multilingual Whisper GGML model.");
+  }
+  const executable = process.env.SARA_WHISPER_BIN ?? "whisper-cli";
+  return { provider: "local", modelPath, executable };
 }
 
 function voiceConfig(): VoiceConfig {
@@ -27,21 +45,19 @@ function voiceConfig(): VoiceConfig {
   if (!token) throw new Error("Set SARA_AGENT_TOKEN to the same value as the Sara backend.");
 
   const backendUrl = process.env.SARA_BACKEND_URL ?? `http://127.0.0.1:${process.env.PORT ?? 3000}`;
-  const provider = process.env.SARA_SPEECH_PROVIDER ?? "local";
-  if (provider === "sarvam") {
-    const apiKey = process.env.SARVAM_API_KEY;
-    if (!apiKey) throw new Error("Set SARVAM_API_KEY to use Sarvam speech.");
-    return { token, backendUrl, speech: { provider, apiKey } };
+  const providers = speechProviders();
+  if (process.platform !== "darwin" && (providers.stt === "local" || providers.tts === "local")) {
+    throw new Error("Local speech requires macOS. Set SARA_SPEECH_PROVIDER=sarvam for hosted speech.");
   }
-  if (provider !== "local") throw new Error("SARA_SPEECH_PROVIDER must be local or sarvam.");
-  if (process.platform !== "darwin") throw new Error("Local speech requires macOS. Use Sarvam speech on other platforms.");
 
-  const modelPath = process.env.SARA_WHISPER_MODEL;
-  if (!modelPath || !existsSync(modelPath)) {
-    throw new Error("Set SARA_WHISPER_MODEL to an existing multilingual Whisper GGML model.");
-  }
-  const executable = process.env.SARA_WHISPER_BIN ?? "whisper-cli";
-  return { token, backendUrl, speech: { provider, modelPath, executable } };
+  return {
+    token,
+    backendUrl,
+    stt: providers.stt === "local" ? whisperConfig() : { provider: "sarvam", apiKey: sarvamApiKey() },
+    tts: providers.tts === "local"
+      ? { provider: "local" }
+      : { provider: "sarvam", apiKey: sarvamApiKey(), speaker: process.env.SARVAM_TTS_SPEAKER?.trim() || undefined },
+  };
 }
 
 class SaraBackend extends llm.LLM {
@@ -131,21 +147,14 @@ export default defineAgent<{ vad: VAD }>({
       throw new Error("Sara call dispatch is missing a valid user ID.");
     }
 
-    const { backendUrl, speech, token } = voiceConfig();
+    const { backendUrl, stt, tts, token } = voiceConfig();
     const endpoint = new URL(`/api/voice/users/${userId}/turn`, backendUrl);
-    const speechModels = speech.provider === "local"
-      ? { stt: new WhisperSTT(speech.executable, speech.modelPath), tts: new MacTTS() }
-      : {
-        stt: new sarvam.STT({
-          apiKey: speech.apiKey, model: "saaras:v3", languageCode: "unknown", mode: "codemix",
-        }),
-        tts: new sarvam.TTS({
-          apiKey: speech.apiKey, model: "bulbul:v3", speaker: "ishita", targetLanguageCode: "hi-IN",
-        }),
-      };
 
     const session = new voice.AgentSession({
-      ...speechModels,
+      stt: stt.provider === "local"
+        ? new WhisperSTT(stt.executable, stt.modelPath)
+        : new sarvam.STT({ apiKey: stt.apiKey, model: "saaras:v3", languageCode: "unknown", mode: "codemix" }),
+      tts: tts.provider === "local" ? new MacTTS() : new SarvamTTS(tts.apiKey, tts.speaker),
       vad: ctx.proc.userData.vad,
       llm: new SaraBackend(endpoint, token),
       // Browser microphones already use echo cancellation. Keep short replies interruptible.

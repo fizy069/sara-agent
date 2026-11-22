@@ -24,6 +24,7 @@ export interface TurnEngine {
 interface TurnOptions {
   model: LanguageModel;
   reasoning: "none" | "low";
+  sarvamVoice?: boolean;
   tools?: ToolSet;
   maxTokens?: number;
 }
@@ -61,7 +62,7 @@ export function createTurnEngine(database: SaraDatabase, options: TurnOptions): 
       ];
       const result = streamText({
         model: options.model,
-        instructions: buildPrompt(channel, database.getMemories(userId)),
+        instructions: buildPrompt(channel, database.getMemories(userId), options.sarvamVoice),
         messages,
         tools: options.tools ?? createTools({ store: database, userId, sourceMessageId }),
         stopWhen: isStepCount(4),

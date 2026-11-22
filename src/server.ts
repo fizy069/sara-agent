@@ -12,6 +12,7 @@ import { ThreadCoordinator } from "./engine/coordinator.js";
 import { createModels } from "./engine/models.js";
 import { createTurnEngine } from "./engine/turn.js";
 import { createMemoryExtractor } from "./memory/extractor.js";
+import { speechProviders } from "./voice/speech-provider.js";
 
 const reasoning = process.env.SARA_CHAT_REASONING ?? "none";
 if (reasoning !== "none" && reasoning !== "low") {
@@ -23,6 +24,7 @@ const database = openDatabase(process.env.SARA_DB_PATH ?? "data/sara.sqlite");
 const engine = createTurnEngine(database, {
   model: models.chat,
   reasoning,
+  sarvamVoice: speechProviders().tts === "sarvam",
 });
 const extract = createMemoryExtractor({
   model: models.memory,

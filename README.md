@@ -52,7 +52,18 @@ Keep Ollama running. Run `livekit-server --dev`, `pnpm dev`, and `pnpm voice:dev
 2. Call from the same demo profile and ask “Do you remember the name of my shop?”
 3. On the call, mention a new detail and hang up after Sara replies. Ask about it in chat. Look for **You · Voice** and **Sara · Voice** in the shared conversation.
 
-For hosted speech, set `SARA_SPEECH_PROVIDER=sarvam` and `SARVAM_API_KEY` in the worker’s environment. LiveKit uses Sarvam for transcription and speech synthesis. Conversation and memory still use the backend’s configured Ollama or OpenAI models.
+### Try Sarvam for Hinglish speech
+
+Keep Whisper for transcription and add these settings to `.env`. Restart both `pnpm dev` and `pnpm voice:dev` so the backend formats Hindi and English for synthesis and the worker uses the same voice on every call.
+
+```dotenv
+SARA_TTS_PROVIDER=sarvam
+SARVAM_API_KEY=replace-with-your-key
+```
+
+Sara uses Bulbul v4 Flash with Ishita’s Hinglish voice. Try saying “Aaj dukaan mein rush tha, lekin payment abhi tak nahi aaya.” End the call and repeat it from another demo profile to hear the same speaker in a new session. Set `SARVAM_TTS_SPEAKER=simran_enhi_customer` and restart the worker if you want to compare voices. [Sarvam voice guide](https://docs.sarvam.ai/api/api-guides-tutorials/text-to-speech/best-practices#writing-text-for-natural-speech).
+
+To use Sarvam for microphone transcription too, set `SARA_SPEECH_PROVIDER=sarvam`. Sarvam bills transcription separately. [Sarvam API pricing](https://www.sarvam.ai/api-pricing).
 
 ### Voice flow
 
