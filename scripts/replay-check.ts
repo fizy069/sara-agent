@@ -39,7 +39,7 @@ const userId = "replay-check";
 const channel = "text";
 
 async function send(database: SaraDatabase, content: string) {
-  const engine = createTurnEngine(database, { model, reasoning: "none", tools });
+  const engine = createTurnEngine(database, { model, contextWindow: models.contextWindow, reasoning: "none", tools });
   const generationId = randomUUID();
   const { message } = database.saveUserMessage({
     userId, channel, content, clientMessageId: randomUUID(), generationId,

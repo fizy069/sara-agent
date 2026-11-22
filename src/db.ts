@@ -3,6 +3,7 @@ import { mkdirSync } from "node:fs";
 import { dirname } from "node:path";
 import { modelMessageSchema, type ModelMessage } from "ai";
 import Database from "better-sqlite3";
+import { conversationTokenBudget, estimateMessageTokens } from "./engine/context.js";
 import { assistantText } from "./engine/messages.js";
 import { createMemoryStore, type MemoryStore } from "./memory/store.js";
 
@@ -42,7 +43,7 @@ export interface SaraDatabase extends MemoryStore {
   saveUserMessage(input: SaveUserMessage): SavedUserMessage;
   getHistory(userId: string): ChatMessage[];
   clearHistory(userId: string): void;
-  getModelHistory(userId: string, limit?: number, beforeMessageId?: string): ModelMessage[];
+  getModelHistory(userId: string, tokenBudget?: number, beforeMessageId?: string): ModelMessage[];
   commitTurn(input: CommitTurn): ChatMessage;
   close(): void;
 }
@@ -170,7 +171,7 @@ function createStore(database: Database.Database): SaraDatabase {
     "UPDATE messages SET status = 'cleared' WHERE user_id = ? AND status = 'committed'",
   );
   const modelHistory = database.prepare<
-    { userId: string; limit: number; beforeMessageId: string | null },
+    { userId: string; beforeMessageId: string | null },
     Pick<MessageRow, "id" | "role" | "modelJson">
   >(
     `SELECT message.id, message.role, message.model_json AS modelJson
@@ -178,7 +179,7 @@ function createStore(database: Database.Database): SaraDatabase {
         AND (@beforeMessageId IS NULL OR message.rowid < (SELECT rowid FROM messages WHERE id = @beforeMessageId))
         AND NOT EXISTS (SELECT 1 FROM hidden_model_generations AS hidden
           WHERE hidden.user_id = message.user_id AND hidden.generation_id = message.generation_id)
-      ORDER BY message.rowid DESC LIMIT @limit`,
+      ORDER BY message.rowid DESC`,
   );
 
   const saveUserMessage = database.transaction((input: SaveUserMessage): SavedUserMessage => {
@@ -240,12 +241,19 @@ function createStore(database: Database.Database): SaraDatabase {
     clearHistory(userId) {
       clearHistory.run(userId);
     },
-    getModelHistory(userId, limit = 12, beforeMessageId) {
-      const rows = modelHistory.all({ userId, limit, beforeMessageId: beforeMessageId ?? null }).reverse();
-      // Start at the first user message inside the window so tool calls and results stay together.
-      const start = rows.findIndex((row) => row.role === "user");
-      if (start < 0) return [];
-      return rows.slice(start).map(({ id, role, modelJson }) => {
+    getModelHistory(userId, tokenBudget = conversationTokenBudget(), beforeMessageId) {
+      if (tokenBudget <= 0) return [];
+      const rows: Pick<MessageRow, "id" | "role" | "modelJson">[] = [];
+      let remaining = tokenBudget;
+      let completeLength = 0;
+      for (const row of modelHistory.iterate({ userId, beforeMessageId: beforeMessageId ?? null })) {
+        remaining -= estimateMessageTokens(row.modelJson);
+        if (remaining < 0) break;
+        rows.push(row);
+        // History starts at a user message so an exchange's tool calls and results stay together.
+        if (row.role === "user") completeLength = rows.length;
+      }
+      return rows.slice(0, completeLength).reverse().map(({ id, role, modelJson }) => {
         try {
           const message = modelMessageSchema.parse(JSON.parse(modelJson));
           if (message.role !== role) throw new Error(`Expected message role ${role}, got ${message.role}`);

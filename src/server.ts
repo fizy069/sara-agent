@@ -23,6 +23,7 @@ const models = createModels();
 const database = openDatabase(process.env.SARA_DB_PATH ?? "data/sara.sqlite");
 const engine = createTurnEngine(database, {
   model: models.chat,
+  contextWindow: models.contextWindow,
   reasoning,
   sarvamVoice: speechProviders().tts === "sarvam",
 });
@@ -179,6 +180,6 @@ const port = Number(process.env.PORT ?? 3000);
 if (!Number.isInteger(port) || port < 0 || port > 65_535) throw new Error("Invalid PORT.");
 const hostname = process.env.HOST ?? "127.0.0.1";
 serve({ fetch: app.fetch, port, hostname }, (address) => {
-  console.log(`Sara is using ${models.provider} (chat: ${models.chat.modelId}, memory: ${models.memory.modelId})`);
+  console.log(`Sara is using ${models.provider} (chat: ${models.chat.modelId}, context target: ${models.contextWindow} tokens, memory: ${models.memory.modelId})`);
   console.log(`Sara is listening at http://${hostname}:${address.port}`);
 });

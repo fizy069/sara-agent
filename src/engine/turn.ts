@@ -1,6 +1,7 @@
 import { isStepCount, streamText, type LanguageModel, type ModelMessage, type ToolSet } from "ai";
 import type { Channel, ChatMessage, SaraDatabase } from "../db.js";
 import { createTools } from "../tools/index.js";
+import { conversationTokenBudget, estimateMessageTokens } from "./context.js";
 import { findUngroundedFinanceNumbers } from "./financeNumbers.js";
 import { assistantText, toStored } from "./messages.js";
 import { buildPrompt } from "./prompt.js";
@@ -23,6 +24,7 @@ export interface TurnEngine {
 
 interface TurnOptions {
   model: LanguageModel;
+  contextWindow?: number;
   reasoning: "none" | "low";
   sarvamVoice?: boolean;
   tools?: ToolSet;
@@ -49,17 +51,17 @@ function replayedFinanceSources(messages: readonly ModelMessage[]): string[] {
 }
 
 export function createTurnEngine(database: SaraDatabase, options: TurnOptions): TurnEngine {
+  const tokenBudget = conversationTokenBudget(options.contextWindow);
   return {
     async *run({ userId, channel, utterances, signal }) {
       signal.throwIfAborted();
       const first = utterances[0];
       if (!first) throw new Error("A Sara turn needs at least one persisted user message.");
       const sourceMessageId = utterances.at(-1)!.id;
-      const previous = database.getModelHistory(userId, Math.max(0, 12 - utterances.length), first.id);
-      const messages: ModelMessage[] = [
-        ...previous,
-        ...utterances.map(({ content }) => ({ role: "user" as const, content })),
-      ];
+      const current: ModelMessage[] = utterances.map(({ content }) => ({ role: "user", content }));
+      const currentTokens = current.reduce((sum, message) => sum + estimateMessageTokens(JSON.stringify(message)), 0);
+      const previous = database.getModelHistory(userId, tokenBudget - currentTokens, first.id);
+      const messages = [...previous, ...current];
       const result = streamText({
         model: options.model,
         instructions: buildPrompt(channel, database.getMemories(userId), options.sarvamVoice),

@@ -16,6 +16,8 @@ pnpm dev
 
 Without an OpenAI key, Sara defaults to local `qwen3.5:9b` for chat and memory extraction. For custom settings, copy [.env.example](.env.example) to `.env`. If you already have a `.env` from the OpenAI setup, set `SARA_MODEL_PROVIDER=ollama` and remove any `SARA_CHAT_MODEL` and `SARA_MEMORY_MODEL` entries that point to OpenAI.
 
+Chat and voice use half of `SARA_CHAT_CONTEXT_WINDOW` for conversation messages, or about 2,048 tokens with the 4,096-token default. Sara estimates tokens from the current message and replays the newest prior exchanges that fit, including their tool calls and results. If the current message uses the whole budget, Sara sends it on its own. To change the target, set `SARA_CHAT_CONTEXT_WINDOW` to match the context allocated by Ollama in `ollama ps`. [Ollama context settings](https://docs.ollama.com/context-length).
+
 Open [Sara on localhost](http://127.0.0.1:3000), choose a demo user, and send a message. The first reply can take longer while Ollama loads the model. The server creates `data/sara.sqlite` on startup, and the conversation resumes when you reload the page.
 
 ### Try Sara

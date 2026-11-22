@@ -88,6 +88,50 @@ test("streams plain text in order and completes with provider-neutral history", 
   ]);
 });
 
+test("replays more than twelve short messages and drops the entire exchange at the token boundary", async () => {
+  const olderGeneration = "older-generation";
+  database.saveUserMessage({
+    userId, channel, generationId: olderGeneration, clientMessageId: "older", content: "पुराना संदेश। ".repeat(200),
+  });
+  database.commitTurn({
+    userId, channel, generationId: olderGeneration, messages: [
+      { role: "assistant", content: [{ type: "tool-call", toolCallId: "old", toolName: "calculate_emi", input: {} }] },
+      { role: "tool", content: [{ type: "tool-result", toolCallId: "old", toolName: "calculate_emi", output: { type: "text", value: "Old result" } }] },
+      { role: "assistant", content: "Old reply" },
+    ],
+  });
+  const recent = Array.from({ length: 7 }, (_, index) => `recent-${index}`);
+  for (const id of recent) {
+    database.saveUserMessage({ userId, channel, generationId: id, clientMessageId: id, content: `Message ${id}` });
+    database.commitTurn({ userId, channel, generationId: id, messages: [{ role: "assistant", content: `Reply ${id}` }] });
+  }
+
+  const model = new MockLanguageModelV4({ doStream: reply("Hello.") });
+  await collect(run(model));
+
+  const prompt = model.doStreamCalls[0].prompt.filter(({ role }) => role !== "system");
+  expect(prompt).toEqual([
+    ...recent.flatMap((id) => [
+      { role: "user", content: [{ type: "text", text: `Message ${id}` }] },
+      { role: "assistant", content: [{ type: "text", text: `Reply ${id}` }] },
+    ]),
+    { role: "user", content: [{ type: "text", text: content }] },
+  ]);
+});
+
+test("sends the current message even when it uses the whole conversation budget", async () => {
+  database.saveUserMessage({ userId, channel, generationId: "prior", clientMessageId: "prior", content: "Hi" });
+  const { message } = database.saveUserMessage({ userId, channel, generationId, clientMessageId: "user", content });
+  const model = new MockLanguageModelV4({ doStream: reply("Hello.") });
+  const engine = createTurnEngine(database, { model, reasoning: "none", contextWindow: 64 });
+
+  await collect(engine.run({ userId, channel, utterances: [message], signal: new AbortController().signal }));
+
+  expect(model.doStreamCalls[0].prompt.filter(({ role }) => role !== "system")).toEqual([
+    { role: "user", content: [{ type: "text", text: content }] },
+  ]);
+});
+
 test("executes the EMI tool and preserves the full exchange across a SQLite reopen", async () => {
   const model = new MockLanguageModelV4({ doStream: [emiStep("emi"), reply("Your EMI is ₹16,607.15.")] });
   const events = await collect(run(model));

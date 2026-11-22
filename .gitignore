@@ -23,3 +23,8 @@ coverage/
 # logs and os
 *.log
 .DS_Store
+
+docs/
+!/docs/
+/docs/*
+!/docs/latency-report.md
