@@ -12,6 +12,7 @@
     "check:replay": "node --env-file-if-exists=.env --import tsx scripts/replay-check.ts",
     "check:voice": "node --env-file-if-exists=.env scripts/voice-smoke.mjs",
     "dev": "node --watch --env-file-if-exists=.env --import tsx src/server.ts",
+    "eval:sara": "node --env-file-if-exists=.env --import tsx scripts/eval-sara.ts",
     "start": "node --env-file-if-exists=.env dist/server.js",
     "voice:dev": "node --env-file-if-exists=.env --import tsx src/voice/worker.ts dev",
     "voice:start": "node --env-file-if-exists=.env dist/voice/worker.js start",

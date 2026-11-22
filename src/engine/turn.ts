@@ -27,6 +27,7 @@ interface TurnOptions {
   contextWindow?: number;
   reasoning: "none" | "low";
   sarvamVoice?: boolean;
+  buildPrompt?: typeof buildPrompt;
   tools?: ToolSet;
   maxTokens?: number;
 }
@@ -52,6 +53,7 @@ function replayedFinanceSources(messages: readonly ModelMessage[]): string[] {
 
 export function createTurnEngine(database: SaraDatabase, options: TurnOptions): TurnEngine {
   const tokenBudget = conversationTokenBudget(options.contextWindow);
+  const prompt = options.buildPrompt ?? buildPrompt;
   return {
     async *run({ userId, channel, utterances, signal }) {
       signal.throwIfAborted();
@@ -64,7 +66,7 @@ export function createTurnEngine(database: SaraDatabase, options: TurnOptions): 
       const messages = [...previous, ...current];
       const result = streamText({
         model: options.model,
-        instructions: buildPrompt(channel, database.getMemories(userId), options.sarvamVoice),
+        instructions: prompt(channel, database.getMemories(userId), options.sarvamVoice),
         messages,
         tools: options.tools ?? createTools({ store: database, userId, sourceMessageId }),
         stopWhen: isStepCount(4),

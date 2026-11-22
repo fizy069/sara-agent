@@ -67,3 +67,20 @@ The LiveKit comparison used two three-turn calls per setup, replaying the Englis
 Latency columns show medians over six ordinary turns per configuration, using the same English, Hindi, and Hinglish recordings in two calls. Two separate pause probes per configuration inserted 575 ms of silence into an English sentence. Split counts come from the number of user turns recorded in Sara's history. Whisper misheard parts of the probe across configurations.
 
 At 650 ms, streaming cut the median time to final transcript by about 0.24 s. The caller's median wait for first audio was about 0.14 s longer. The median time from Qwen's first text to the start of synthesis was 0.87 s with streaming and 0.54 s with batch as the generated replies varied. At 500 ms, streaming was slower than batch on both measured latency medians. It reused a preview for 11 of 12 ordinary streaming turns, issuing 5–10 preview decodes per turn. The sum of the Whisper request times had a median of 2.93–3.18 s per streaming turn, much of it overlapping the caller's speech.
+
+## On-demand voice latency check
+
+With the Sara backend, LiveKit, and the voice worker running, use `pnpm check:voice --latency`. The command reuses the smoke test's microphone replay and LiveKit receiver. It plays both clips once to warm the stack, then replays each clip five times. Each run starts a fresh call with an empty chat history. Keep the speech providers, voice, instance, and model settings fixed across runs and when comparing changes.
+
+The fixtures are synthetic 16 kHz mono PCM WAVs. They use the macOS Tara voice and have been trimmed to remove trailing silence.
+
+| Fixed clip | Spoken question |
+| --- | --- |
+| [Shop talk](../scripts/fixtures/voice/shop-talk.wav) | Hi Sara, how can I make a slow day at my shop more useful? |
+| [Hinglish EMI](../scripts/fixtures/voice/emi-hinglish.wav) | For a one lakh rupee loan at twelve percent annual interest for twelve months, monthly EMI kitni hogi? |
+
+The second clip gives all the inputs for `calculate_emi`. Use the printed transcript and reply to see whether the spoken question was heard and answered as intended.
+
+The report shows the median, observed range, and count of first-audio timeouts after 60 seconds for each clip. Only the five measured runs contribute to the table. Setup or follow-up errors have a separate count. A measured first-frame timestamp still contributes if a later diagnostic fails. Any failed run makes the command exit nonzero after printing the report.
+
+If a change increases latency, find its printed room name in the worker's `Sara voice timing` logs. Use the [stage breakdown above](#measured-latency) to compare end-of-turn detection and transcription, response generation, and speech synthesis.
