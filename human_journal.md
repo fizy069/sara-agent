@@ -1,4 +1,4 @@
-# Decision journal - llms do not touch 
+# human journal - llms do not touch 
 
 ## Decision 1 — Use the Vercel AI SDK for the turn engine
 
@@ -16,6 +16,7 @@ rough idea but perhaps we can also allow our agent to create a tool for specific
 
 finance grounding - we need to have a source of truth, it could be a collection of resources we index for the agent to access and query. i could think of two kinds of approaches, one where the agent performs lookup itself either using a subagent that searches through our collection or using a simple rag lookup/multihop retrieval. 
 
+for now, we have single semnatic search with the model instructed to always search in english - allowing our docs to match the user's query irrespective of search language. i'm aware this kind of approach would fail in cases where we need, say, summaries of documents. we need to implement slihgtly more sophesticated search for that. 
 
 ## Decision 3 - long term memory
 
@@ -30,3 +31,9 @@ retrieval of this memory is another challenge
 ## Decision 4 - voice agent
 
 livekit seems to provide the glue code we need for our voice agent. i experimented with different free/local models (supertonic, sarvam, whisper stt) and latencies , along with silero VAD. achieving proper hinglish output with these small models seemed to be tough. single language works decent but if the conversation gets longer the output quality is not great. but this could also be because im relying on locally running Qwen 9b for the LLM which is pretty weak as an agentic model.  
+
+
+## decision 5 - self learning framework
+
+i wanted to implement a self learning framework where we store versioned prompts and we have simulated conversations and candidate testing of each prompt, to refine the prompts over time. 
+part of it is present on codex/sara-evaluation.
