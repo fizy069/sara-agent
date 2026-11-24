@@ -67,3 +67,39 @@ The LiveKit comparison used two three-turn calls per setup, replaying the Englis
 Latency columns show medians over six ordinary turns per configuration, using the same English, Hindi, and Hinglish recordings in two calls. Two separate pause probes per configuration inserted 575 ms of silence into an English sentence. Split counts come from the number of user turns recorded in Sara's history. Whisper misheard parts of the probe across configurations.
 
 At 650 ms, streaming cut the median time to final transcript by about 0.24 s. The caller's median wait for first audio was about 0.14 s longer. The median time from Qwen's first text to the start of synthesis was 0.87 s with streaming and 0.54 s with batch as the generated replies varied. At 500 ms, streaming was slower than batch on both measured latency medians. It reused a preview for 11 of 12 ordinary streaming turns, issuing 5–10 preview decodes per turn. The sum of the Whisper request times had a median of 2.93–3.18 s per streaming turn, much of it overlapping the caller's speech.
+
+## Preloaded Whisper worker
+
+**Measured 25 November 2026.** Two isolated LiveKit calls each replayed the original five synthetic microphone fixtures with warm Qwen, Tara synthesis, and a 650 ms endpointing minimum. Both transcription arms used Whisper Small Q5 with automatic language detection, four threads, a beam size of five, and a best-of setting of five. In one arm Sara invoked the CLI for each turn. In the other, Sara sent the same type of WAV input to a loopback-only `whisper-server` with the model already loaded. The input fixtures were trimmed at the last sample exceeding the test's speech threshold. The receiver measured the first voiced frame on the same Mac.
+
+| Stage | Whisper CLI | Preloaded server |
+| --- | ---: | ---: |
+| Transcription itself | 731 ms | 329 ms |
+| End of caller speech to final transcript | 1,386 ms | 1,015 ms |
+| Backend request to first reply text | 908 ms | 348 ms |
+| First reply text to start of synthesis | 394 ms | 378 ms |
+| Synthesis request to first audio chunk | 1,333 ms | 1,496 ms |
+| First audio chunk to first voiced frame at receiver | 73 ms | 64 ms |
+| **End of caller speech to first audible reply** | **4,135 ms (2,920–5,171)** | **3,863 ms (2,815–4,451)** |
+
+Values are medians over five turns per arm. The warmed server became reachable 414 ms after launching. Qwen took 5,223 ms to load on a separate cold start. In these local calls, waiting for the final transcript and waiting for Tara's initial audio contributed most of the delay. Qwen's first text also varied between the calls. The end-to-end difference includes all of these effects.
+
+Each arm saved one transcript for each turn. LiveKit transcripts varied across replays, with errors in both arms on the Hindi and Hinglish clips. Both arms answered the 24-month EMI follow-up correctly in text and missed the exact amount for 12 months. In a separate CPU-only control, both Whisper paths received byte-identical WAV files. They produced matching transcripts after whitespace normalization in all ten pairs. [Local Whisper setup](../README.md#keep-the-local-whisper-model-loaded)
+
+## Bulbul HTTP and WebSocket synthesis
+
+**Measured 25 November 2026.** A direct Sarvam test used the same Bulbul v4 Flash model, Ishita voice, Indian English language setting, preprocessing, and 24 kHz PCM for each transport. It replayed four two-sentence English replies about shop inventory, a UPI payment and two EMI amounts at 34 ms per word. Each transport saw the same replies in two interleaved passes. HTTP sent complete sentences and reused its HTTP connection when available. The WebSocket opened at the start of each reply and sent text every three words, then flushed at the end. The clock ran from the start of text generation to the first PCM chunk containing a sample above the test's voice threshold.
+
+| Transport | Median | Range | Trials |
+| --- | ---: | ---: | ---: |
+| HTTP streaming | 1,061 ms | 807–2,260 ms | 8 |
+| WebSocket, 50-character buffer | 1,254 ms | 1,031–1,745 ms | 8 |
+| WebSocket, 100-character buffer | 1,685 ms | 1,227–2,381 ms | 8 |
+
+The HTTP path had the lowest median for these replies. The test captures synthesis under a simulated text stream. Measuring a WebSocket connection reused across turns and caller wait through the full voice pipeline requires another test. [Sarvam WebSocket guide](https://docs.sarvam.ai/api/api-guides-tutorials/text-to-speech/streaming-api/web-socket)
+
+## Local end-of-turn model pause probe
+
+**Measured 25 November 2026.** The LiveKit v1-mini audio model scored the last two seconds of the five completed English, Hindi and Hinglish fixtures and the incomplete English phrase “Can you help me with”. The test repeated each clip with 300, 400, 500, 575 and 650 ms of appended silence. All five completed fixtures exceeded the packaged threshold at every delay. The incomplete phrase also exceeded it at every delay, including a score of 0.960 at 575 ms against the 0.250 English threshold. Across all 30 predictions, model inference took 63 ms at the median (51–70 ms).
+
+This was an offline scoring probe on synthetic clips. The earlier LiveKit test split both 575 ms pauses at a 500 ms fixed minimum. Sara keeps the 650 ms minimum while this accuracy risk remains. [LiveKit turn detector guide](https://docs.livekit.io/agents/logic/turns/turn-detector/)

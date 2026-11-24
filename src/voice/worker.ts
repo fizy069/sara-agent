@@ -20,7 +20,7 @@ interface VoiceConfig {
   token: string;
   backendUrl: string;
   stt:
-    | { provider: "local"; modelPath: string; executable: string }
+    | { provider: "local"; modelPath: string; executable: string; inferenceUrl?: URL }
     | { provider: "sarvam"; apiKey: string };
   tts: { provider: "local" } | { provider: "sarvam"; apiKey: string; speaker?: string };
 }
@@ -37,7 +37,14 @@ function whisperConfig(): VoiceConfig["stt"] {
     throw new Error("Set SARA_WHISPER_MODEL to an existing multilingual Whisper GGML model.");
   }
   const executable = process.env.SARA_WHISPER_BIN ?? "whisper-cli";
-  return { provider: "local", modelPath, executable };
+  const serverUrl = process.env.SARA_WHISPER_SERVER_URL?.trim();
+  if (!serverUrl) return { provider: "local", modelPath, executable };
+  const url = URL.parse(serverUrl);
+  if (!url || url.protocol !== "http:" || !["127.0.0.1", "[::1]"].includes(url.hostname) ||
+      url.pathname !== "/" || url.search || url.hash || url.username || url.password) {
+    throw new Error("SARA_WHISPER_SERVER_URL must be a loopback HTTP origin, such as http://127.0.0.1:8090.");
+  }
+  return { provider: "local", modelPath, executable, inferenceUrl: new URL("/inference", url) };
 }
 
 function voiceConfig(): VoiceConfig {
@@ -152,7 +159,7 @@ export default defineAgent<{ vad: VAD }>({
 
     const session = new voice.AgentSession({
       stt: stt.provider === "local"
-        ? new WhisperSTT(stt.executable, stt.modelPath)
+        ? new WhisperSTT(stt.executable, stt.modelPath, stt.inferenceUrl)
         : new sarvam.STT({ apiKey: stt.apiKey, model: "saaras:v3", languageCode: "unknown", mode: "codemix" }),
       tts: tts.provider === "local" ? new MacTTS() : new SarvamTTS(tts.apiKey, tts.speaker),
       vad: ctx.proc.userData.vad,

@@ -19,7 +19,7 @@ const sttSampleRate = 16_000;
 const ttsSampleRate = 24_000;
 const devanagari = /\p{Script=Devanagari}/u;
 
-function asWav(audio: AudioBuffer): Buffer {
+function asWav(audio: AudioBuffer): Buffer<ArrayBuffer> {
   let frame = mergeFrames(audio);
   if (frame.sampleRate !== sttSampleRate) {
     const resampler = new AudioResampler(frame.sampleRate, sttSampleRate, frame.channels);
@@ -60,10 +60,15 @@ function wavPcm(wave: Buffer): Buffer {
 }
 
 export class WhisperSTT extends stt.STT {
-  label = "sara.whisper-cli";
+  label: string;
 
-  constructor(private readonly executable: string, private readonly modelPath: string) {
+  constructor(
+    private readonly executable: string,
+    private readonly modelPath: string,
+    private readonly inferenceUrl?: URL,
+  ) {
     super({ streaming: false, interimResults: false });
+    this.label = inferenceUrl ? "sara.whisper-server" : "sara.whisper-cli";
   }
 
   stream(): stt.SpeechStream {
@@ -71,29 +76,60 @@ export class WhisperSTT extends stt.STT {
   }
 
   protected async _recognize(audio: AudioBuffer, signal?: AbortSignal): Promise<stt.SpeechEvent> {
-    const requestId = randomUUID();
+    const wav = asWav(audio);
+    const serverText = await this.recognizeWithServer(wav, signal);
+    const text = (serverText ?? await this.recognizeWithCli(wav, signal)).trim();
+    const silence = !text || /^(?:\[[^\]]+\]|\([^)]*\)|\*[^*]*\*)$/.test(text);
+    return {
+      type: stt.SpeechEventType.FINAL_TRANSCRIPT,
+      requestId: randomUUID(),
+      alternatives: [{
+        text: silence ? "" : text,
+        language: normalizeLanguage(devanagari.test(text) ? "hi" : "en"),
+        startTime: 0,
+        endTime: 0,
+        confidence: 1,
+      }],
+    };
+  }
+
+  private async recognizeWithServer(wav: Buffer<ArrayBuffer>, signal?: AbortSignal): Promise<string | undefined> {
+    if (!this.inferenceUrl) return;
+    signal?.throwIfAborted();
+    try {
+      const form = new FormData();
+      form.set("file", new Blob([wav], { type: "audio/wav" }), "utterance.wav");
+      form.set("response_format", "json");
+      form.set("language", "auto");
+      const timeout = AbortSignal.timeout(2_000);
+      const response = await fetch(this.inferenceUrl, {
+        method: "POST", body: form, redirect: "error",
+        signal: signal ? AbortSignal.any([signal, timeout]) : timeout,
+      });
+      if (!response.ok) {
+        await response.body?.cancel();
+        throw new Error(`Whisper server returned HTTP ${response.status}.`);
+      }
+      const transcript = await response.json() as { text?: unknown } | null;
+      if (typeof transcript?.text !== "string") throw new Error("Whisper server returned an invalid transcript.");
+      return transcript.text;
+    } catch {
+      signal?.throwIfAborted();
+      console.warn("Sara Whisper server unavailable, using Whisper CLI for this utterance.");
+    }
+  }
+
+  private async recognizeWithCli(wav: Buffer, signal?: AbortSignal): Promise<string> {
     const dir = await mkdtemp(join(tmpdir(), "sara-stt-"));
     try {
       const input = join(dir, "input.wav");
       const output = join(dir, "transcript");
-      await writeFile(input, asWav(audio), { signal });
+      await writeFile(input, wav, { signal });
       await run(this.executable, [
         "--model", this.modelPath, "--language", "auto", "--file", input,
         "--output-txt", "--output-file", output, "--no-prints",
       ], { signal, timeout: 30_000 });
-      const text = (await readFile(`${output}.txt`, "utf8")).trim();
-      const silence = !text || /^(?:\[[^\]]+\]|\([^)]*\)|\*[^*]*\*)$/.test(text);
-      return {
-        type: stt.SpeechEventType.FINAL_TRANSCRIPT,
-        requestId,
-        alternatives: [{
-          text: silence ? "" : text,
-          language: normalizeLanguage(devanagari.test(text) ? "hi" : "en"),
-          startTime: 0,
-          endTime: 0,
-          confidence: 1,
-        }],
-      };
+      return await readFile(`${output}.txt`, { encoding: "utf8", signal });
     } finally {
       await rm(dir, { recursive: true, force: true });
     }

@@ -78,6 +78,18 @@ Keep Ollama running. Run `livekit-server --dev`, `pnpm dev`, and `pnpm voice:dev
 2. Call from the same demo profile and ask “Do you remember the name of my shop?”
 3. On the call, mention a new detail and hang up after Sara replies. Ask about it in chat. Look for **You · Voice** and **Sara · Voice** in the shared conversation.
 
+### Keep the local Whisper model loaded
+
+To avoid loading the model for every utterance, run `whisper-server` in a separate terminal on the same Mac. Use the same model file as `SARA_WHISPER_MODEL` and match the CLI's decoding settings.
+
+```sh
+whisper-server --host 127.0.0.1 --port 8090 \
+  --model data/models/ggml-small-q5_1.bin --language auto \
+  --threads 4 --beam-size 5 --best-of 5
+```
+
+Set `SARA_WHISPER_SERVER_URL=http://127.0.0.1:8090` in `.env` and restart the voice worker. Keep the CLI and model installed. Sara retries an utterance with the CLI if the loopback server returns an error or takes more than two seconds. [Latency report](docs/latency-report.md#preloaded-whisper-worker)
+
 ### Try Sarvam for voice replies
 
 Keep Whisper for transcription and add these settings to `.env`. Restart `pnpm voice:dev` to switch to Sarvam synthesis.
