@@ -1,14 +1,36 @@
 # Sara voice latency benchmark
 
+## Preloaded Whisper, Qwen, and Sarvam synthesis
+
+**Measured 25 November 2026.** An isolated LiveKit stack replayed the same five English, Hindi, and Hinglish clips in two calls per setup, using fresh conversation histories. Both setups used Whisper Small Q5 with automatic language detection, four threads, a beam size of five, and a best-of setting of five. Both used warm Ollama Qwen 3.5 9B, Sarvam Bulbul v4 Flash with Ishita, and 650 ms minimum endpointing. Only the transcription path changed. The CLI loaded Whisper each turn. A loopback `whisper-server` kept the model loaded between turns.
+
+The client clock ran from the end of each input clip, trimmed at the last sample above the fixture's speech threshold, to the first or last voiced frame received by LiveKit on the same Mac. [Demo setup](../README.md#use-sarvam-for-voice-replies)
+
+| Measurement | Whisper CLI | Preloaded Whisper |
+| --- | ---: | ---: |
+| **Speech end to first audible reply** | **2.90 s** | **2.72 s** |
+| Observed first-audio range | 2.15–3.53 s | 1.96–3.66 s |
+| Whisper transcription | 631 ms | 273 ms |
+| Speech end to final transcript | 1.31 s | 0.94 s |
+| Backend request to first reply text from Qwen | 211 ms | 381 ms |
+| First synthesis request to first audio chunk | 306 ms | 314 ms |
+| Speech end to last voiced frame | 16.39 s | 15.81 s |
+
+The median caller wait fell by 176 ms (6%) across ten turns per setup. Across the introduction, inventory, and payment clips alone, first audio improved from 2.90 s to 2.45 s (six turns per setup). Qwen used the EMI calculator on two of four EMI turns with the CLI and on all four with preloaded Whisper. Those turns had different generation workloads and are included in the overall medians.
+
+All 20 turns saved one transcript and one reply. The preloaded server became reachable in 411 ms and handled every utterance in its two calls. The observed ranges describe these synthetic calls on a local LiveKit receiver. Browser playout and remote network conditions can add delay.
+
+## 22 November provider comparison
+
 **Measured 22 November 2026.** The median wait from the end of the caller's speech to the first audible reply was 3.91 s with fully local speech, 3.30 s with Sarvam synthesis, and 2.51 s with Sarvam transcription and synthesis.
 
-## Test setup
+### Test setup
 
 The benchmark used the `codex/sarvam-hinglish-tts` checkout at `7819fad` with the working-copy conversation token budget of approximately 2,048 tokens. All three setups used the same warm Ollama Qwen 3.5 9B model on the same Mac, with LiveKit and Silero voice activity detection. The minimum endpointing delay was 650 ms. Local speech used multilingual Whisper Small Q5 and macOS `say`. Sarvam speech used Saaras v3 in code-mix mode for transcription and Bulbul v4 Flash with Ishita for synthesis. The Sarvam synthesis setups also used the branch's Hinglish reply prompt. [Voice worker](../src/voice/worker.ts) · [Speech setup](../README.md#make-a-browser-call-on-macos)
 
 An isolated LiveKit stack replayed the same synthetic microphone recordings in two five-turn calls per setup. Each call included an English opening about a slow day at a stationery shop, a Hindi stock-counting question, a Hinglish UPI payment-status question, an English EMI calculation, and a follow-up that changed the loan term from 12 to 24 months. The clock ran from the end of each input recording to the first or last voiced frame received by the LiveKit test client. The existing demos stayed running.
 
-## Measured latency
+### Measured latency
 
 Each setup contributed ten turns. Values are medians except where the table gives the observed range. Each stage and total has its own median, so the displayed stage medians can sum to a different value from the total median. Scenario medians use two repeats each, with four turns in the combined EMI row.
 
@@ -28,7 +50,7 @@ Each setup contributed ten turns. Values are medians except where the table give
 | Hinglish payment question to first audio | 3.70 s | 3.12 s | 2.16 s |
 | EMI question and follow-up to first audio | 4.15 s | 3.32 s | 2.83 s |
 
-## Observations
+### Observations
 
 - **Transcription.** Whisper processing itself took 0.60 s with macOS synthesis and 0.59 s with Sarvam synthesis at the median. The caller also waited for endpointing before local transcription started. Saaras began transcribing while the caller spoke.
 - **API timing.** Sara's local HTTP endpoint returned headers in 3–24 ms across the runs. The synthesis row includes the Sarvam HTTP wait where applicable. End-of-reply timing also includes the length of Sara's spoken answer.

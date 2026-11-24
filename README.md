@@ -88,13 +88,17 @@ whisper-server --host 127.0.0.1 --port 8090 \
   --threads 4 --beam-size 5 --best-of 5
 ```
 
-Set `SARA_WHISPER_SERVER_URL=http://127.0.0.1:8090` in `.env` and restart the voice worker. Keep the CLI and model installed. Sara retries an utterance with the CLI if the loopback server returns an error or takes more than two seconds. [Latency report](docs/latency-report.md#preloaded-whisper-worker)
+Set `SARA_WHISPER_SERVER_URL=http://127.0.0.1:8090` in `.env` and restart the voice worker. Keep the CLI and model installed. Sara retries an utterance with the CLI if the loopback server returns an error or takes more than two seconds. [Latency report](docs/latency-report.md#preloaded-whisper-qwen-and-sarvam-synthesis)
 
-### Try Sarvam for voice replies
+### Use Sarvam for voice replies
 
-Keep Whisper for transcription and add these settings to `.env`. Restart `pnpm voice:dev` to switch to Sarvam synthesis.
+For the demo setup, start the preloaded Whisper server above and use local Ollama Qwen with Sarvam synthesis. Add these settings to `.env` and restart the backend and voice worker.
 
 ```dotenv
+SARA_MODEL_PROVIDER=ollama
+SARA_CHAT_MODEL=qwen3.5:9b
+SARA_SPEECH_PROVIDER=local
+SARA_WHISPER_SERVER_URL=http://127.0.0.1:8090
 SARA_TTS_PROVIDER=sarvam
 SARVAM_API_KEY=replace-with-your-key
 ```
@@ -107,18 +111,11 @@ To use Sarvam for microphone transcription too, set `SARA_SPEECH_PROVIDER=sarvam
 
 The backend gives the browser a room-scoped token and dispatches the Sara worker. LiveKit detects speech and interruptions, and the worker sends the final transcript to the backend. The same coordinator handles typed and spoken turns. It streams the reply to both the browser transcript and the worker, which synthesizes audio into the room. If the caller interrupts while a reply is generating, the worker closes the reply stream and the backend cancels that generation. A reply that has already committed remains in history even if the caller interrupts playback.
 
-Sara replies in English on calls, including when the caller speaks Hindi or Hinglish. Typed replies follow the language of the latest message. The local worker transcribes after a pause and uses the macOS Tara voice. Short pauses can split a sentence. The worker logs timing by stage for smoke testing.
+Sara replies in English on calls, including when the caller speaks Hindi or Hinglish. Typed replies follow the language of the latest message. Whisper transcribes after a pause. The local-only setup uses macOS Tara for synthesis. Short pauses can split a sentence. The worker logs timing by stage for smoke testing.
 
 The English and Hindi smoke scenarios verified recall across chat and voice. The English test also transcribes the audio received over LiveKit to check that the reply is intelligible. In a separate call, speaking over Sara stopped the first reply and started a new turn. Whisper garbled the new preference in the Hinglish sample, so that check failed.
 
-One local smoke call used Whisper small and Qwen 3.5 9B. Times are in seconds.
-
-| Measurement | Seconds |
-| --- | ---: |
-| End of test utterance to first voiced reply audio | 2.3 |
-| Whisper transcription | 0.5 |
-| Backend request to first token | 0.2 |
-| First synthesis request to first PCM chunk | 0.7 |
+In the 25 November 2026 benchmark, preloading Whisper lowered median transcription time from 631 ms to 273 ms. With warm Qwen 3.5 9B and Sarvam Bulbul v4 Flash in both setups, median time from speech end to first audible reply fell from 2.90 s to 2.72 s over ten turns per setup. [Latency report](docs/latency-report.md#preloaded-whisper-qwen-and-sarvam-synthesis)
 
 ### Switch to OpenAI
 

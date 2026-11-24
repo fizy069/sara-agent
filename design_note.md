@@ -15,16 +15,7 @@
 
 ### Voice response latency
 
-Sara’s fastest tested setup used Sarvam for transcription and speech synthesis. The median wait from the end of the caller’s speech to the first audible reply was **2.51 s**, compared with **3.30 s** with Whisper transcription and the same Sarvam voice.
-
-| Stage (median) | Sarvam transcription + voice | Whisper transcription + Sarvam voice |
-| --- | ---: | ---: |
-| Speech end to final transcript, including end-of-turn detection | 0.88 s | 1.28 s |
-| Backend request to first reply text from Qwen | 0.29 s | 0.67 s |
-| First reply text to start of speech synthesis | 0.47 s | 0.53 s |
-| Synthesis request to first audio chunk | 0.31 s | 0.33 s |
-
-The benchmark replayed ten turns per setup with warm Qwen and measured first audio at the LiveKit receiver on the same Mac. The total includes handoff and audio delivery, and each stage has its own median. [Latency benchmark](docs/latency-report.md#measured-latency)
+The demo uses preloaded Whisper for transcription, local Qwen 3.5 9B for replies, and Sarvam Bulbul v4 Flash for speech. In the 25 November 2026 benchmark, keeping Whisper loaded reduced median transcription time from **631 ms to 273 ms**. Median time from the end of the caller’s speech to the first audible reply fell from **2.90 s to 2.72 s**. Both setups used the same Qwen and Sarvam configuration and replayed ten turns each through LiveKit on the same Mac. [Latency benchmark](docs/latency-report.md#preloaded-whisper-qwen-and-sarvam-synthesis)
 
 ### What I’d change with more time
 
